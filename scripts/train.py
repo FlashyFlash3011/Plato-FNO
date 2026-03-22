@@ -213,7 +213,12 @@ def main(cfg: DictConfig) -> None:
             scheduler,
             epoch,
             val_loss,
-            extra=model.architecture_kwargs(),
+            extra={
+                **model.architecture_kwargs(),
+                "amp_dtype":              amp_dtype_str,
+                "spectral_init_exponent": exponent,
+                "beta1":                  cfg.train.beta1,
+            },
         )
         auto_ckpt(val_loss, model, optimizer, scheduler, epoch)
 
