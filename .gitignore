@@ -1,0 +1,37 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Data (large, generated)
+data/raw/
+data/processed/
+data/prt_input_data/
+
+# Model artifacts
+checkpoints/
+results/
+
+# Hydra outputs
+.hydra/
+outputs/
+multirun/
+
+# Jupyter
+notebooks/.ipynb_checkpoints/
+.ipynb_checkpoints/
+
+# Tooling
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
