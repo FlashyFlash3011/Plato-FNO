@@ -39,7 +39,6 @@ htmlcov/
 # Local Claude session state, plans, and memory (machine-specific)
 .claude/
 *.plan
-# Note: CLAUDE.md is intentionally tracked — it documents project conventions
 
 # ── Environment / secrets ─────────────────────────────────────────────────────
 .env
