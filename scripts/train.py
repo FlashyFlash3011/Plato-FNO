@@ -27,7 +27,7 @@ from solaris.datapipes.dataset import build_dataloader
 
 from plato_fno.data.dataset import make_splits, load_raw_arrays
 from plato_fno.data.normalizer import SpectrumNormalizer
-from plato_fno.models.surrogate import AtmosphereSurrogate
+from plato_fno.models.surrogate import AtmosphereSurrogate, apply_overtone_spectral_init
 
 import h5py
 import numpy as np
@@ -107,6 +107,13 @@ def main(cfg: DictConfig) -> None:
     ).to(device)
 
     log.info(f"AtmosphereSurrogate: {model.num_parameters():,} parameters")
+
+    # Overtone spectral init: reinitialise FNO Fourier weights with power-law
+    # mode decay. Ported from parameter-golf. Skipped if exponent == 0.
+    exponent = cfg.train.spectral_init_exponent
+    if exponent > 0.0:
+        apply_overtone_spectral_init(model, exponent=exponent)
+        log.info(f"Applied overtone spectral init (exponent={exponent})")
 
     # ------------------------------------------------------------------
     # Optimiser and schedulers (Solaris utilities)
