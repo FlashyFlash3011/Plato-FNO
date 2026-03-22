@@ -16,7 +16,7 @@ def _make_state(seed: int = 0) -> AtmosphericState:
 
 
 def test_n_params_matches_prior_bounds():
-    assert len(AtmosphericState.PRIOR_BOUNDS) == N_PARAMS - 1  # 14 named bounds
+    assert len(AtmosphericState.PRIOR_BOUNDS) == N_PARAMS
 
 
 def test_to_vector_shape():

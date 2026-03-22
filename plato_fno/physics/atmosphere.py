@@ -11,7 +11,7 @@ import numpy as np
 SPECIES: list[str] = ["H2O", "CO2", "CH4", "CO", "NH3"]
 
 # Total number of free parameters
-N_PARAMS: int = 15
+N_PARAMS: int = 14
 
 # Ordered parameter names (matches to_vector / from_vector)
 PARAM_NAMES: list[str] = [
@@ -21,7 +21,7 @@ PARAM_NAMES: list[str] = [
     "log_P_cloud", "f_sed",
 ]
 
-assert len(PARAM_NAMES) == N_PARAMS - 1, "Update PARAM_NAMES if N_PARAMS changes"
+assert len(PARAM_NAMES) == N_PARAMS, "Update PARAM_NAMES if N_PARAMS changes"
 
 
 @dataclass

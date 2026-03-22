@@ -44,7 +44,7 @@ def integrate_spectrum_to_photometry(
         if mask.sum() < 2:
             result[band] = float("nan")
         else:
-            result[band] = float(np.trapz(spectrum[mask], wavelengths[mask]) / (lam_max - lam_min))
+            result[band] = float(np.trapezoid(spectrum[mask], wavelengths[mask]) / (lam_max - lam_min))
     return result
 
 
