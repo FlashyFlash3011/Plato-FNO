@@ -78,6 +78,20 @@ q_hat is stored in normalised units; multiply by `normalizer.spec_std` for ppm.
 `emcee` with `vectorize=True` batches 64 walkers into one GPU forward call.
 Speedup vs sequential pRT: ~6000× per MCMC step.
 
+## Training improvements (ported from parameter-golf)
+
+Three techniques from the 4096-context parameter-golf experiments were
+ported here (without the 16 MB size constraint):
+
+| Technique | Config key | Default | Effect |
+|-----------|-----------|---------|--------|
+| **Mixed precision (BF16)** | `train.amp_dtype` | `bf16` | ~2x training speedup on ROCm/RDNA4. Uses `torch.amp.autocast`. No GradScaler needed for BF16. Set to `none` to disable. |
+| **Higher AdamW momentum** | `train.beta1` | `0.98` | Ported from long-context stability experiments. PyTorch default is 0.9. |
+| **Overtone spectral init** | `train.spectral_init_exponent` | `0.5` | Power-law decay on FNO Fourier weights: mode k scaled by (k+1)^{-0.5}. Concentrates initial energy in low-frequency modes, matching atmospheric spectra statistics. Set to `0.0` to disable. |
+
+What was NOT ported (LM-specific): sliding window eval, LoRA TTT,
+context length scaling, quantization schemes, NTK RoPE.
+
 ## Solaris components used
 - `solaris.models.fno.FNO` — core operator (dim=1)
 - `solaris.models.conformal.ConformalNeuralOperator` — UQ wrapper
