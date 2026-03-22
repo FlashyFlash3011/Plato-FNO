@@ -17,12 +17,60 @@ atmospheric parameters to spectral features is highly non-linear.
 
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn as nn
 
 from solaris.models.fno import FNO
+from solaris.nn.spectral import SpectralConv1d
 
 from plato_fno.physics.atmosphere import N_PARAMS
+
+
+def apply_overtone_spectral_init(model: nn.Module, exponent: float = 0.5) -> None:
+    """Initialise FNO spectral convolution weights with a power-law mode decay.
+
+    Ported from the parameter-golf overtone spectral embedding init. Each
+    Fourier mode k is scaled by (k+1)^{-exponent} relative to the default
+    uniform initialisation. This matches the statistics of physical signals
+    where low-frequency components dominate (atmospheric spectra included).
+
+    Specifically, for each SpectralConv1d weight tensor of shape
+    (in_ch, out_ch, modes), we multiply the k-th mode slice by:
+        gain_k = (1 / (k+1))^exponent
+
+    This does NOT change the total weight energy (it is renormalised so
+    the mean L2 norm matches the default init), only redistributes it
+    toward lower modes.
+
+    Parameters
+    ----------
+    model : nn.Module
+        Any module tree containing SpectralConv1d layers.
+    exponent : float
+        Power-law exponent. 0.5 matches the parameter-golf value.
+        Higher values concentrate more energy in the lowest modes.
+    """
+    for module in model.modules():
+        if not isinstance(module, SpectralConv1d):
+            continue
+
+        w = module.weights.data  # (in_ch, out_ch, modes), cfloat
+        modes = w.shape[-1]
+
+        # Build per-mode gain vector: shape (modes,)
+        gains = torch.tensor(
+            [(1.0 / (k + 1)) ** exponent for k in range(modes)],
+            dtype=torch.float32,
+            device=w.device,
+        )
+
+        # Renormalise so RMS gain = 1 (preserve overall weight scale)
+        gains = gains / gains.pow(2).mean().sqrt()
+
+        # Apply to the mode dimension (last dim of complex weight)
+        module.weights.data = w * gains.to(torch.cfloat)
 
 
 class AtmosphereSurrogate(nn.Module):
