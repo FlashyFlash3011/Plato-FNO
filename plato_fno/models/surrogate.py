@@ -102,6 +102,10 @@ class AtmosphereSurrogate(nn.Module):
         super().__init__()
         self.n_wavelengths = n_wavelengths
         self.n_enc = n_enc
+        # Store arch kwargs explicitly so architecture_kwargs() is never fragile
+        self._hidden_channels = hidden_channels
+        self._n_layers = n_layers
+        self._modes = modes
 
         assert modes < n_wavelengths // 2, (
             f"modes={modes} must be < n_wavelengths//2={n_wavelengths // 2}"
@@ -177,7 +181,7 @@ class AtmosphereSurrogate(nn.Module):
         return {
             "n_wavelengths":   self.n_wavelengths,
             "n_enc":           self.n_enc,
-            "hidden_channels": self.fno.blocks[0].conv.out_channels if hasattr(self.fno, "blocks") else 128,
-            "n_layers":        len(self.fno.blocks) if hasattr(self.fno, "blocks") else 6,
-            "modes":           self.fno.blocks[0].spectral.modes[0] if hasattr(self.fno, "blocks") else 24,
+            "hidden_channels": self._hidden_channels,
+            "n_layers":        self._n_layers,
+            "modes":           self._modes,
         }
