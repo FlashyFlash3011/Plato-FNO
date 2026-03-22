@@ -3,8 +3,9 @@
 import torch
 import pytest
 
-from plato_fno.models.surrogate import AtmosphereSurrogate
+from plato_fno.models.surrogate import AtmosphereSurrogate, apply_overtone_spectral_init
 from plato_fno.physics.atmosphere import N_PARAMS
+from solaris.nn.spectral import SpectralConv1d
 
 N_WAVELENGTHS = 64  # small for fast tests
 N_ENC         = 16
@@ -70,3 +71,58 @@ def test_single_sample(surrogate):
     theta = torch.randn(1, N_PARAMS)
     out = surrogate(theta)
     assert out.shape == (1, 1, N_WAVELENGTHS)
+
+
+def test_architecture_kwargs_roundtrip(surrogate):
+    """architecture_kwargs should contain exactly the constructor args."""
+    kwargs = surrogate.architecture_kwargs()
+    assert kwargs["n_wavelengths"] == N_WAVELENGTHS
+    assert kwargs["n_enc"] == N_ENC
+    assert kwargs["hidden_channels"] == HIDDEN
+    assert kwargs["n_layers"] == N_LAYERS
+    assert kwargs["modes"] == MODES
+
+
+def test_overtone_init_lowers_high_mode_energy():
+    """After overtone init, low-frequency modes should have more energy than high."""
+    torch.manual_seed(0)
+    model = AtmosphereSurrogate(
+        n_wavelengths=N_WAVELENGTHS, n_enc=N_ENC,
+        hidden_channels=HIDDEN, n_layers=N_LAYERS, modes=MODES,
+    )
+    apply_overtone_spectral_init(model, exponent=0.5)
+
+    for module in model.modules():
+        if isinstance(module, SpectralConv1d):
+            w = module.weights.data.abs()  # (in_ch, out_ch, modes)
+            # Mean magnitude of mode 0 should exceed mode -1 (highest)
+            low_mode_energy  = w[:, :, 0].mean().item()
+            high_mode_energy = w[:, :, -1].mean().item()
+            assert low_mode_energy > high_mode_energy, (
+                f"Expected low-mode energy ({low_mode_energy:.4f}) > "
+                f"high-mode energy ({high_mode_energy:.4f}) after overtone init"
+            )
+
+
+def test_overtone_init_preserves_weight_scale():
+    """Overtone init should not drastically change the overall weight scale."""
+    torch.manual_seed(0)
+    model = AtmosphereSurrogate(
+        n_wavelengths=N_WAVELENGTHS, n_enc=N_ENC,
+        hidden_channels=HIDDEN, n_layers=N_LAYERS, modes=MODES,
+    )
+    # Record RMS before
+    before_rms = torch.cat([
+        m.weights.data.abs().flatten()
+        for m in model.modules() if isinstance(m, SpectralConv1d)
+    ]).mean().item()
+
+    apply_overtone_spectral_init(model, exponent=0.5)
+
+    after_rms = torch.cat([
+        m.weights.data.abs().flatten()
+        for m in model.modules() if isinstance(m, SpectralConv1d)
+    ]).mean().item()
+
+    # RMS should be within 50% — the init redistributes but doesn't explode
+    assert abs(after_rms - before_rms) / (before_rms + 1e-9) < 0.5
