@@ -104,6 +104,15 @@ def test_overtone_init_lowers_high_mode_energy():
             )
 
 
+def test_forward_bf16_autocast(surrogate):
+    """Model should produce finite output under BF16 autocast on CPU."""
+    theta = torch.randn(BATCH, N_PARAMS)
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16, enabled=True):
+        out = surrogate(theta)
+    assert out.isfinite().all(), "Non-finite values under BF16 autocast"
+    assert out.shape == (BATCH, 1, N_WAVELENGTHS)
+
+
 def test_overtone_init_preserves_weight_scale():
     """Overtone init should not drastically change the overall weight scale."""
     torch.manual_seed(0)
