@@ -15,6 +15,7 @@ from pathlib import Path
 import hydra
 import torch
 import torch.nn.functional as F
+from torch.amp import GradScaler, autocast
 from loguru import logger
 from omegaconf import DictConfig
 
@@ -137,6 +138,14 @@ def main(cfg: DictConfig) -> None:
     clipper    = GradientClipper(max_norm=cfg.train.grad_clip)
     auto_ckpt  = AutoCheckpoint(ckpt_dir / "best_surrogate.pt", mode="min")
 
+    # Mixed precision setup. BF16 is preferred on ROCm/RDNA4 (no loss scaling
+    # needed). FP16 needs a GradScaler. "none" disables autocast entirely.
+    amp_dtype_str = cfg.train.amp_dtype
+    use_amp = amp_dtype_str != "none" and device.type == "cuda"
+    amp_dtype = torch.bfloat16 if amp_dtype_str == "bf16" else torch.float16
+    scaler = GradScaler(device=device.type) if (use_amp and amp_dtype == torch.float16) else None
+    log.info(f"Mixed precision: {amp_dtype_str if use_amp else 'disabled'}")
+
     # ------------------------------------------------------------------
     # Training loop
     # ------------------------------------------------------------------
@@ -150,17 +159,26 @@ def main(cfg: DictConfig) -> None:
             y = batch["target"].to(device)   # (B, 1, L)
 
             optimizer.zero_grad()
-            pred = model(x)                  # (B, 1, L)
-            loss = loss_fn(pred, y)
-            loss.backward()
-            clipper(model)
-            optimizer.step()
+            with autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+                pred = model(x)              # (B, 1, L)
+                loss = loss_fn(pred, y)
+
+            if scaler is not None:
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                clipper(model)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                clipper(model)
+                optimizer.step()
 
             train_loss += loss.item()
 
         train_loss /= len(train_loader)
 
-        # Validation
+        # Validation (always in fp32 for accurate metrics)
         model.eval()
         val_loss = 0.0
         val_rmse = 0.0
