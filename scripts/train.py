@@ -118,10 +118,13 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     # Optimiser and schedulers (Solaris utilities)
     # ------------------------------------------------------------------
+    # beta1=0.98 (vs PyTorch default 0.9): ported from parameter-golf long-context
+    # experiments where higher momentum improved convergence stability.
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=cfg.train.lr,
         weight_decay=cfg.train.weight_decay,
+        betas=(cfg.train.beta1, cfg.train.beta2),
     )
     scheduler = WarmupCosineScheduler(
         optimizer,
