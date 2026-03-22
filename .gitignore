@@ -1,4 +1,4 @@
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 .venv/
 __pycache__/
 *.pyc
@@ -9,29 +9,59 @@ dist/
 build/
 .eggs/
 
-# Data (large, generated)
+# ── Data (large, generated) ───────────────────────────────────────────────────
 data/raw/
 data/processed/
 data/prt_input_data/
 
-# Model artifacts
+# ── Model artifacts ───────────────────────────────────────────────────────────
 checkpoints/
 results/
 
-# Hydra outputs
+# ── Hydra outputs ─────────────────────────────────────────────────────────────
 .hydra/
 outputs/
 multirun/
 
-# Jupyter
+# ── Jupyter ───────────────────────────────────────────────────────────────────
 notebooks/.ipynb_checkpoints/
 .ipynb_checkpoints/
 
-# Tooling
+# ── Tooling ───────────────────────────────────────────────────────────────────
 .ruff_cache/
 .pytest_cache/
 .coverage
 htmlcov/
+.mypy_cache/
+.pytype/
 
-# OS
+# ── Claude Code ───────────────────────────────────────────────────────────────
+# Local Claude session state, plans, and memory (machine-specific)
+.claude/
+*.plan
+# Note: CLAUDE.md is intentionally tracked — it documents project conventions
+
+# ── Environment / secrets ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ── Editors ───────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.spyproject/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
