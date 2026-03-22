@@ -1,0 +1,12 @@
+defaults:
+  - data: default
+  - model: fno1d
+  - train: default
+  - retrieval: emcee
+  - _self_
+
+project_name: plato-fno
+checkpoint_dir: checkpoints
+results_dir: results
+device: cuda
+seed: 42

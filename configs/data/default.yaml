@@ -1,0 +1,9 @@
+n_samples: 50000
+wavelength_range: [0.3, 5.0]  # microns
+n_wavelengths: 300
+n_layers: 60                   # pressure layers for petitRADTRANS
+n_workers: 4
+chunk_size: 1000
+seed: 42
+output_path: data/raw/atmosphere_spectra.h5
+species: [H2O, CO2, CH4, CO, NH3]

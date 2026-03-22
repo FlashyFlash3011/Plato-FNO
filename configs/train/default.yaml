@@ -1,0 +1,12 @@
+batch_size: 64
+epochs: 200
+lr: 3e-4
+weight_decay: 1e-4
+warmup_epochs: 10
+min_lr: 1e-6
+grad_clip: 1.0
+early_stopping_patience: 20
+train_frac: 0.80
+val_frac: 0.10
+# remaining 0.10 is calibration set
+conformal_alpha: 0.1

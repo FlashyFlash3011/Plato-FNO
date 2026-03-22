@@ -1,0 +1,5 @@
+n_wavelengths: 300
+n_enc: 32
+hidden_channels: 128
+n_layers: 6
+modes: 24
