@@ -1,8 +1,16 @@
-"""petitRADTRANS wrapper for generating atmosphere→spectrum training data.
+"""petitRADTRANS v3 wrapper for generating atmosphere→spectrum training data.
 
 petitRADTRANS is process-safe but not thread-safe: each worker process
 must instantiate its own Radtrans object. This module uses multiprocessing
 to parallelise over CPU cores.
+
+pRT v3 API notes (vs v2):
+- Pressures and wavelength_boundaries are now constructor args
+- calc_transm() → calculate_transit_radii() which returns (radii, wlen, dict)
+- continuum_opacities → gas_continuum_contributors
+- wlen_bords_micron → wavelength_boundaries (in microns)
+- mode → line_opacity_mode
+- setup_opa_structure() removed — pressures in constructor
 """
 
 from __future__ import annotations
@@ -20,7 +28,7 @@ from plato_fno.physics.atmosphere import AtmosphericState, guillot_temperature_p
 
 # petitRADTRANS is optional at import time so tests can run without it
 try:
-    from petitRADTRANS import Radtrans  # type: ignore[import]
+    from petitRADTRANS.radtrans import Radtrans  # type: ignore[import]
     _PRT_AVAILABLE = True
 except ImportError:
     _PRT_AVAILABLE = False
@@ -31,7 +39,7 @@ except ImportError:
 # Radtrans factory — one instance per worker process
 # ---------------------------------------------------------------------------
 
-_worker_prt: Radtrans | None = None
+_worker_prt: "Radtrans | None" = None
 _worker_pressures: np.ndarray | None = None
 _worker_wavelengths: np.ndarray | None = None
 
@@ -48,23 +56,25 @@ def _init_worker(
     if not _PRT_AVAILABLE:
         raise RuntimeError("petitRADTRANS is not installed. Run: pip install petitRADTRANS")
 
-    prt_data = os.environ.get("PRTDATA", "")
-    if prt_data:
-        os.environ["pRT_input_data_path"] = prt_data
+    # Log-spaced pressure grid from 1e-6 to 1e2 bar (top→surface)
+    # pRT v3 requires ASCENDING order
+    _worker_pressures = np.logspace(-6, 2, n_layers)  # bar, low→high
+
+    # pRT v3: pass pressures and wavelength_boundaries to constructor
+    # Add slight margin to wavelength range so pRT's native grid covers ours
+    wl_lo = wavelength_range[0] * 0.98
+    wl_hi = wavelength_range[1] * 1.02
 
     _worker_prt = Radtrans(
+        pressures=_worker_pressures,
+        wavelength_boundaries=np.array([wl_lo, wl_hi]),
         line_species=species,
         rayleigh_species=["H2", "He"],
-        continuum_opacities=["H2-H2", "H2-He"],
-        wlen_bords_micron=list(wavelength_range),
-        mode="c-k",
+        gas_continuum_contributors=["H2-H2", "H2-He"],
+        line_opacity_mode="c-k",
     )
 
-    # Log-spaced pressure grid from 1e-6 to 1e2 bar (surface→top)
-    _worker_pressures = np.logspace(2, -6, n_layers)  # bar, high→low
-    _worker_prt.setup_opa_structure(_worker_pressures)
-
-    # Wavelength grid for output (interpolated from pRT's native grid)
+    # Our uniform output wavelength grid (for interpolation)
     _worker_wavelengths = np.linspace(wavelength_range[0], wavelength_range[1], n_wavelengths)
 
 
@@ -85,7 +95,7 @@ def _compute_one(state_vec: np.ndarray) -> np.ndarray | None:
 
 
 # ---------------------------------------------------------------------------
-# Core spectrum computation
+# Core spectrum computation (pRT v3 API)
 # ---------------------------------------------------------------------------
 
 def compute_spectrum(
@@ -94,14 +104,14 @@ def compute_spectrum(
     pressures: np.ndarray,
     wavelengths_micron: np.ndarray,
 ) -> np.ndarray:
-    """Run one petitRADTRANS forward pass.
+    """Run one petitRADTRANS v3 forward pass.
 
     Parameters
     ----------
     state : AtmosphericState
         Atmospheric parameters (physical units, not normalised).
     prt : Radtrans
-        Pre-initialised petitRADTRANS Radtrans object.
+        Pre-initialised petitRADTRANS Radtrans object (v3).
     pressures : np.ndarray
         Pressure grid in bar, shape (n_layers,), high→low.
     wavelengths_micron : np.ndarray
@@ -115,7 +125,6 @@ def compute_spectrum(
     n_layers = len(pressures)
 
     # Build T-P profile using Guillot parameterisation
-    # kappa_IR and gamma are stored as log10 in AtmosphericState
     temperature = guillot_temperature_profile(
         pressures,
         T_int=state.T_int,
@@ -125,7 +134,6 @@ def compute_spectrum(
     )
 
     # Mass fractions — broadcast to (n_layers,) arrays
-    abundances: dict[str, np.ndarray] = {}
     log_x_map = {
         "H2O": state.log_X_H2O,
         "CO2": state.log_X_CO2,
@@ -138,37 +146,38 @@ def compute_spectrum(
     h2_frac = 0.75 * h2_he_frac
     he_frac = 0.25 * h2_he_frac
 
+    mass_fractions: dict[str, np.ndarray] = {}
     for species, log_x in log_x_map.items():
-        abundances[species] = np.full(n_layers, 10.0**log_x)
-    abundances["H2"] = np.full(n_layers, h2_frac)
-    abundances["He"] = np.full(n_layers, he_frac)
+        mass_fractions[species] = np.full(n_layers, 10.0**log_x)
+    mass_fractions["H2"] = np.full(n_layers, h2_frac)
+    mass_fractions["He"] = np.full(n_layers, he_frac)
 
-    # Mean molecular weight (approximate)
-    mmw = np.full(n_layers, 2.33)  # mostly H2/He
+    # Mean molecular weight (approximate, mostly H2/He)
+    mean_molar_masses = np.full(n_layers, 2.33)
 
-    gravity = 10.0**state.log_g  # cm/s^2
+    gravity = 10.0**state.log_g          # cm/s^2
     R_planet_cm = state.R_planet * 7.1492e9   # R_jup → cm
     R_star_cm   = state.R_star   * 6.957e10   # R_sun → cm
 
-    prt.calc_transm(
-        temperature,
-        abundances,
-        gravity,
-        mmw,
-        R_pl=R_planet_cm,
-        P0_bar=pressures[0],
+    # pRT v3 returns (wlen_cm, transit_radii_cm, extras_dict)
+    # reference_pressure: highest pressure point = pressures[-1] in ascending grid
+    wlen_cm, transit_radii, _ = prt.calculate_transit_radii(
+        temperatures=temperature,
+        mass_fractions=mass_fractions,
+        mean_molar_masses=mean_molar_masses,
+        reference_gravity=gravity,
+        reference_pressure=pressures[-1],  # bar (surface, highest pressure)
+        planet_radius=R_planet_cm,
+        variable_gravity=True,
+        opaque_cloud_top_pressure=10.0**state.log_P_cloud,  # bar
+        frequencies_to_wavelengths=True,   # wlen_cm in ascending cm
     )
 
-    # pRT returns wavelength in cm; convert to microns and interpolate
-    wlen_prt = prt.transm_rad / R_star_cm  # transmission radius ratio
-    # pRT wavelength grid
-    wlen_um = prt.freq_wlen * 1e4  # cm → microns
+    # Convert wavelength from cm to µm; compute transit depth (Rp_eff/Rs)^2
+    wlen_um = wlen_cm * 1e4
+    transit_depth = (transit_radii / R_star_cm) ** 2
 
-    # transit depth = (Rp_eff / Rs)^2
-    transit_depth = (prt.transm_rad / R_star_cm) ** 2
-
-    # Interpolate onto our uniform wavelength grid
-    return np.interp(wavelengths_micron, wlen_um[::-1], transit_depth[::-1]).astype(np.float32)
+    return np.interp(wavelengths_micron, wlen_um, transit_depth).astype(np.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -190,9 +199,9 @@ def generate_dataset_hdf5(
 
     HDF5 layout
     -----------
-    /input        (n_samples, N_PARAMS)       float32  — raw parameter vectors
-    /target       (n_samples, 1, n_wavelengths) float32 — transit depth spectra
-    /wavelengths  (n_wavelengths,)             float64  — wavelength grid [µm]
+    /input        (n_samples, N_PARAMS)         float32  — raw parameter vectors
+    /target       (n_samples, 1, n_wavelengths) float32  — transit depth spectra
+    /wavelengths  (n_wavelengths,)              float64  — wavelength grid [µm]
     attrs: n_samples, seed, species, wavelength_range
 
     Parameters
@@ -240,9 +249,9 @@ def generate_dataset_hdf5(
         f.attrs["species"] = species
         f.attrs["wavelength_range"] = list(wavelength_range)
 
-        ds_input  = f.create_dataset("input",  shape=(n_samples, N_PARAMS),          dtype="float32", chunks=(chunk_size, N_PARAMS))
-        ds_target = f.create_dataset("target", shape=(n_samples, 1, n_wavelengths),   dtype="float32", chunks=(chunk_size, 1, n_wavelengths))
-        ds_waves  = f.create_dataset("wavelengths", data=wavelengths)
+        ds_input  = f.create_dataset("input",  shape=(n_samples, N_PARAMS),            dtype="float32", chunks=(chunk_size, N_PARAMS))
+        ds_target = f.create_dataset("target", shape=(n_samples, 1, n_wavelengths),     dtype="float32", chunks=(chunk_size, 1, n_wavelengths))
+        _         = f.create_dataset("wavelengths", data=wavelengths)
 
         # Write parameter vectors immediately (always available even if spectrum fails)
         ds_input[:] = param_vecs
@@ -258,7 +267,6 @@ def generate_dataset_hdf5(
 
             for i, spectrum in enumerate(tqdm(results, total=n_samples, desc="Generating spectra")):
                 if spectrum is None:
-                    # Fill with NaN; can be filtered during training
                     ds_target[i, 0, :] = np.full(n_wavelengths, float("nan"), dtype=np.float32)
                     failed += 1
                 else:
