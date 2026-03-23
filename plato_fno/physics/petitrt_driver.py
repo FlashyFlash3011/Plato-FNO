@@ -249,8 +249,9 @@ def generate_dataset_hdf5(
         f.attrs["species"] = species
         f.attrs["wavelength_range"] = list(wavelength_range)
 
-        ds_input  = f.create_dataset("input",  shape=(n_samples, N_PARAMS),            dtype="float32", chunks=(chunk_size, N_PARAMS))
-        ds_target = f.create_dataset("target", shape=(n_samples, 1, n_wavelengths),     dtype="float32", chunks=(chunk_size, 1, n_wavelengths))
+        chunk = min(chunk_size, n_samples)
+        ds_input  = f.create_dataset("input",  shape=(n_samples, N_PARAMS),            dtype="float32", chunks=(chunk, N_PARAMS))
+        ds_target = f.create_dataset("target", shape=(n_samples, 1, n_wavelengths),     dtype="float32", chunks=(chunk, 1, n_wavelengths))
         _         = f.create_dataset("wavelengths", data=wavelengths)
 
         # Write parameter vectors immediately (always available even if spectrum fails)
@@ -273,7 +274,7 @@ def generate_dataset_hdf5(
                     ds_target[i, 0, :] = spectrum
                     written += 1
 
-                if (i + 1) % chunk_size == 0:
+                if (i + 1) % chunk == 0:
                     f.flush()
 
     logger.info(f"Done: {written} OK, {failed} failed → {output_path}")

@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import hydra
+from hydra.utils import to_absolute_path
 from loguru import logger
 from omegaconf import DictConfig
 
@@ -19,7 +20,7 @@ from plato_fno.physics.petitrt_driver import generate_dataset_hdf5
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    output_path = Path(cfg.data.output_path)
+    output_path = Path(to_absolute_path(cfg.data.output_path))
 
     logger.info(f"Generating {cfg.data.n_samples} atmosphere–spectrum pairs")
     logger.info(f"Wavelength range: {cfg.data.wavelength_range} µm, {cfg.data.n_wavelengths} points")
