@@ -166,6 +166,7 @@ def load_raw_arrays(
     spectra : np.ndarray, shape (len(indices), 1, L)
     """
     with h5py.File(hdf5_path, "r") as f:
-        params  = f["input"][indices]   # (N, N_PARAMS)
-        spectra = f["target"][indices]  # (N, 1, L)
+        sorted_idx = np.sort(indices)
+        params  = f["input"][sorted_idx]   # (N, N_PARAMS)
+        spectra = f["target"][sorted_idx]  # (N, 1, L)
     return params, spectra

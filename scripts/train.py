@@ -202,7 +202,7 @@ def main(cfg: DictConfig) -> None:
                 f"train_loss={train_loss:.4e} | "
                 f"val_loss={val_loss:.4e} | "
                 f"val_rmse={val_rmse:.4e} | "
-                f"lr={scheduler.get_last_lr()[0]:.2e}"
+                f"lr={optimizer.param_groups[0]['lr']:.2e}"
             )
 
         # Checkpoint + early stopping
@@ -210,9 +210,8 @@ def main(cfg: DictConfig) -> None:
             ckpt_dir / "last_surrogate.pt",
             model,
             optimizer,
-            scheduler,
-            epoch,
-            val_loss,
+            epoch=epoch,
+            loss=val_loss,
             extra={
                 **model.architecture_kwargs(),
                 "amp_dtype":              amp_dtype_str,
@@ -220,9 +219,9 @@ def main(cfg: DictConfig) -> None:
                 "beta1":                  cfg.train.beta1,
             },
         )
-        auto_ckpt(val_loss, model, optimizer, scheduler, epoch)
+        auto_ckpt.update(model, val_loss)
 
-        if early_stop(val_loss):
+        if early_stop.step(val_loss):
             log.info(f"Early stopping at epoch {epoch}")
             break
 

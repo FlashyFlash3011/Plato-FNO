@@ -38,6 +38,7 @@ def main(cfg: DictConfig) -> None:
         seed=cfg.seed,
         n_workers=cfg.data.n_workers,
         chunk_size=cfg.data.chunk_size,
+        throttle_sleep=cfg.data.get("throttle_sleep", 0.0),
     )
 
     logger.success(f"Dataset written to {output_path}")

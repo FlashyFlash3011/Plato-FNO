@@ -42,6 +42,7 @@ except ImportError:
 _worker_prt: "Radtrans | None" = None
 _worker_pressures: np.ndarray | None = None
 _worker_wavelengths: np.ndarray | None = None
+_worker_sleep: float = 0.0  # seconds to sleep after each spectrum (throttle)
 
 
 def _init_worker(
@@ -49,9 +50,11 @@ def _init_worker(
     wavelength_range: tuple[float, float],
     n_wavelengths: int,
     n_layers: int,
+    sleep_seconds: float = 0.0,
 ) -> None:
     """Initialise Radtrans in each worker process (called once per worker)."""
-    global _worker_prt, _worker_pressures, _worker_wavelengths
+    global _worker_prt, _worker_pressures, _worker_wavelengths, _worker_sleep
+    _worker_sleep = sleep_seconds
 
     if not _PRT_AVAILABLE:
         raise RuntimeError("petitRADTRANS is not installed. Run: pip install petitRADTRANS")
@@ -83,11 +86,14 @@ def _compute_one(state_vec: np.ndarray) -> np.ndarray | None:
 
     Called inside worker processes. Returns shape (n_wavelengths,) or None on error.
     """
-    global _worker_prt, _worker_pressures, _worker_wavelengths
+    import time
+    global _worker_prt, _worker_pressures, _worker_wavelengths, _worker_sleep
 
     try:
         state = AtmosphericState.from_vector(state_vec)
         spectrum = compute_spectrum(state, _worker_prt, _worker_pressures, _worker_wavelengths)
+        if _worker_sleep > 0:
+            time.sleep(_worker_sleep)
         return spectrum
     except Exception as exc:
         logger.warning(f"pRT failed for sample: {exc}")
@@ -194,6 +200,7 @@ def generate_dataset_hdf5(
     seed: int = 42,
     n_workers: int = 4,
     chunk_size: int = 1000,
+    throttle_sleep: float = 0.0,
 ) -> None:
     """Generate n_samples (atmosphere, spectrum) pairs and write to HDF5.
 
@@ -258,7 +265,7 @@ def generate_dataset_hdf5(
         ds_input[:] = param_vecs
 
         ctx = mp.get_context("spawn")
-        initargs = (species, wavelength_range, n_wavelengths, n_layers)
+        initargs = (species, wavelength_range, n_wavelengths, n_layers, throttle_sleep)
 
         written = 0
         failed = 0

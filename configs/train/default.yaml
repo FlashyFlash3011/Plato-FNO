@@ -15,7 +15,7 @@ val_frac: 0.10
 # remaining 0.10 is calibration set
 conformal_alpha: 0.1
 # Mixed precision: "bf16" for ROCm/RDNA4, "fp16" for older hardware, "none" to disable
-amp_dtype: bf16
+amp_dtype: none
 # Overtone spectral init for FNO Fourier weights (power-law exponent).
 # Set to 0.0 to disable. 0.5 matches the parameter-golf value.
 spectral_init_exponent: 0.5

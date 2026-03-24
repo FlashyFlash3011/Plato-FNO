@@ -4,6 +4,7 @@ n_wavelengths: 300
 n_layers: 60                   # pressure layers for petitRADTRANS
 n_workers: 4
 chunk_size: 1000
+throttle_sleep: 0.0  # seconds to sleep after each spectrum (>0 limits CPU usage)
 seed: 42
 output_path: data/raw/atmosphere_spectra.h5
 species: [H2O, CO2, CH4, CO, NH3]
