@@ -65,7 +65,8 @@ def main(cfg: DictConfig) -> None:
 
     with h5py.File(hdf5_path, "r") as f:
         targets = f["target"][:]
-    valid_mask = np.isfinite(targets).all(axis=(1, 2))
+    per_max = targets.max(axis=(1, 2))
+    valid_mask = np.isfinite(targets).all(axis=(1, 2)) & (per_max < 0.15)
     all_valid = np.where(valid_mask)[0]
 
     rng = np.random.default_rng(cfg.seed)

@@ -1,4 +1,4 @@
-batch_size: 64
+batch_size: 256
 epochs: 200
 lr: 3e-4
 weight_decay: 1e-4

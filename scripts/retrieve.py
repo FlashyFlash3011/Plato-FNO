@@ -53,7 +53,8 @@ def main(cfg: DictConfig) -> None:
         n_layers=cfg.model.n_layers,
         modes=cfg.model.modes,
     )
-    load_checkpoint(ckpt_dir / "best_surrogate.pt", model)
+    ckpt = torch.load(ckpt_dir / "best_surrogate.pt", map_location=device, weights_only=False)
+    model.load_state_dict(ckpt if isinstance(ckpt, dict) and "model_state_dict" not in ckpt else ckpt["model_state_dict"])
     model.to(device).eval()
 
     normalizer = SpectrumNormalizer.load(ckpt_dir / "norm_stats.npz")

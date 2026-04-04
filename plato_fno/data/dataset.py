@@ -56,7 +56,8 @@ class AtmosphereDataset(Dataset):
             targets = f["target"][:]  # (N, 1, L)
             n_total = targets.shape[0]
 
-        valid_mask = np.isfinite(targets).all(axis=(1, 2))  # (N,)
+        per_max = targets.max(axis=(1, 2))
+        valid_mask = np.isfinite(targets).all(axis=(1, 2)) & (per_max < 0.15)  # (N,)
         valid_indices = np.where(valid_mask)[0]
 
         if indices is not None:
@@ -131,7 +132,8 @@ def make_splits(
     # Discover all valid indices
     with h5py.File(hdf5_path, "r") as f:
         targets = f["target"][:]
-    valid_mask = np.isfinite(targets).all(axis=(1, 2))
+    per_max = targets.max(axis=(1, 2))
+    valid_mask = np.isfinite(targets).all(axis=(1, 2)) & (per_max < 0.15)
     all_indices = np.where(valid_mask)[0]
 
     rng = np.random.default_rng(seed)

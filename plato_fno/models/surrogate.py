@@ -129,6 +129,13 @@ class AtmosphereSurrogate(nn.Module):
             dim=1,
         )
 
+        # Per-sample mean predictor: bypasses InstanceNorm inside FNO blocks.
+        # InstanceNorm1d strips the mean over the wavelength axis so the FNO
+        # cannot learn per-sample transit depth scale. This linear layer maps
+        # the encoded params directly to a scalar offset added to the FNO
+        # output, restoring the ability to predict different overall levels.
+        self.mean_predictor = nn.Linear(n_enc, 1)
+
         # Wavelength positional embedding in [0, 1]: (1, 1, L)
         # Registered as buffer so it follows .to(device) automatically
         self.register_buffer(
@@ -169,8 +176,11 @@ class AtmosphereSurrogate(nn.Module):
         Tensor, shape (B, 1, L)
             Predicted normalised transit depth spectrum.
         """
-        x = self.encode_params(theta)  # (B, n_enc+1, L)
-        return self.fno(x)             # (B, 1, L)
+        x = self.encode_params(theta)                          # (B, n_enc+1, L)
+        fno_out = self.fno(x)                                  # (B, 1, L)
+        enc = self.param_encoder(theta)                        # (B, n_enc)
+        offset = self.mean_predictor(enc).unsqueeze(-1)        # (B, 1, 1)
+        return fno_out + offset                                # (B, 1, L)
 
     def num_parameters(self) -> int:
         """Total number of trainable parameters."""
