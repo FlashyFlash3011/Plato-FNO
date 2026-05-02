@@ -44,3 +44,47 @@ _SNR_V10: dict[str, float] = {
 }
 
 _ONE_PPM = 1e-6
+
+
+def bin_spectrum(
+    spectrum: np.ndarray,
+    wavelengths: np.ndarray,
+    lam_min: float,
+    lam_max: float,
+    n_bins: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Average-bin a transit depth spectrum to an instrument spectral grid.
+
+    Parameters
+    ----------
+    spectrum : np.ndarray, shape (L,) or (1, L)
+        FNO output transit depth spectrum.
+    wavelengths : np.ndarray, shape (L,)
+        Wavelength grid in microns (FNO native: 300 points, 0.3–5.0 µm).
+    lam_min, lam_max : float
+        Instrument wavelength range in microns.
+    n_bins : int
+        Number of output spectral channels.
+
+    Returns
+    -------
+    binned      : np.ndarray, shape (n_bins,)  float32
+    bin_centers : np.ndarray, shape (n_bins,)  float32
+    """
+    if spectrum.ndim == 2:
+        spectrum = spectrum[0]
+
+    edges   = np.linspace(lam_min, lam_max, n_bins + 1)
+    centers = 0.5 * (edges[:-1] + edges[1:]).astype(np.float32)
+    binned  = np.empty(n_bins, dtype=np.float32)
+
+    for i in range(n_bins):
+        mask = (wavelengths >= edges[i]) & (wavelengths < edges[i + 1])
+        if mask.sum() > 0:
+            binned[i] = float(spectrum[mask].mean())
+        else:
+            # Nearest-neighbour fallback when bin is narrower than native grid
+            nearest  = int(np.argmin(np.abs(wavelengths - centers[i])))
+            binned[i] = float(spectrum[nearest])
+
+    return binned, centers
