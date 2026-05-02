@@ -145,3 +145,34 @@ def simulate_jwst_observation(
     observed = (binned + noise).astype(np.float32)
 
     return observed, bin_centers, sigma
+
+
+def make_bin_transform(
+    wavelengths: np.ndarray,
+    instrument: str,
+):
+    """Return a callable that bins a batch of spectra to the instrument grid.
+
+    The returned function maps (B, L) → (B, n_bins), suitable for use as
+    ``obs_transform`` in MCMCRetrieval so the likelihood is computed in the
+    instrument's spectral space rather than the full 300-point FNO grid.
+
+    Parameters
+    ----------
+    wavelengths : np.ndarray, shape (L,)
+        FNO native wavelength grid in microns.
+    instrument : str
+        One of JWST_INSTRUMENTS.
+    """
+    lam_min, lam_max, n_bins = JWST_INSTRUMENTS[instrument]
+
+    def _transform(pred_batch: np.ndarray) -> np.ndarray:
+        B   = pred_batch.shape[0]
+        out = np.empty((B, n_bins), dtype=np.float32)
+        for i in range(B):
+            out[i], _ = bin_spectrum(
+                pred_batch[i], wavelengths, lam_min, lam_max, n_bins
+            )
+        return out
+
+    return _transform
