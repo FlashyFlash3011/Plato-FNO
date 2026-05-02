@@ -88,3 +88,60 @@ def bin_spectrum(
             binned[i] = float(spectrum[nearest])
 
     return binned, centers
+
+
+def simulate_jwst_observation(
+    spectrum: np.ndarray,
+    wavelengths: np.ndarray,
+    instrument: str = "niriss_soss",
+    stellar_vmag: float = 10.0,
+    rng: np.random.Generator | None = None,
+    snr_override: float | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Simulate a JWST transmission spectrum observation.
+
+    Bins the FNO spectrum to the instrument grid and adds per-channel
+    photon noise scaled by stellar brightness.
+
+    Parameters
+    ----------
+    spectrum : np.ndarray, shape (L,) or (1, L)
+        Noiseless FNO-predicted transit depth spectrum.
+    wavelengths : np.ndarray, shape (L,)
+        FNO wavelength grid in microns.
+    instrument : str
+        One of JWST_INSTRUMENTS.
+    stellar_vmag : float
+        V-band apparent magnitude of the host star.
+    rng : np.random.Generator, optional
+        Defaults to a new generator.
+    snr_override : float, optional
+        Override the instrument baseline SNR (useful for controlled experiments).
+
+    Returns
+    -------
+    observed    : np.ndarray, shape (n_bins,)  — noisy binned transit depth
+    bin_centers : np.ndarray, shape (n_bins,)  — bin wavelengths [µm]
+    sigma       : np.ndarray, shape (n_bins,)  — per-bin 1σ noise [same units as depth]
+    """
+    if instrument not in JWST_INSTRUMENTS:
+        raise ValueError(
+            f"Unknown instrument '{instrument}'. "
+            f"Choose from: {list(JWST_INSTRUMENTS)}"
+        )
+
+    lam_min, lam_max, n_bins = JWST_INSTRUMENTS[instrument]
+    binned, bin_centers = bin_spectrum(spectrum, wavelengths, lam_min, lam_max, n_bins)
+
+    snr_base = snr_override if snr_override is not None else _SNR_V10[instrument]
+    snr      = snr_base * 10.0 ** (-0.2 * (stellar_vmag - 10.0))
+
+    # Per-bin sigma: signal / SNR with 1 ppm noise floor
+    sigma = np.maximum(np.abs(binned) / snr, _ONE_PPM).astype(np.float32)
+
+    if rng is None:
+        rng = np.random.default_rng()
+    noise    = rng.normal(0.0, 1.0, n_bins).astype(np.float32) * sigma
+    observed = (binned + noise).astype(np.float32)
+
+    return observed, bin_centers, sigma
