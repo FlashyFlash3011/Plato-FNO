@@ -1,0 +1,29 @@
+# Core dependencies
+emcee>=3.1.4
+corner>=2.2.2
+h5py>=3.8.0
+numpy>=1.24.0
+hydra-core>=1.3.0
+omegaconf>=2.3.0
+tqdm>=4.65.0
+loguru>=0.7.0
+pydantic>=2.0.0
+matplotlib>=3.7.0
+arviz>=0.17.0
+
+# PyTorch (ROCm) — install manually:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.2
+
+# Local packages (install from source)
+# pip install -e "/home/ethan/projects/Solaris[datapipes,viz]"
+# pip install -e ".[dev]"
+
+# Optional: petitRADTRANS for data generation
+# pip install petitRADTRANS>=2.7.0
+
+# Dev dependencies
+pytest>=7.4.0
+pytest-cov>=4.1.0
+ruff>=0.1.0
+pre-commit>=3.3.0
+ipykernel>=6.0.0
