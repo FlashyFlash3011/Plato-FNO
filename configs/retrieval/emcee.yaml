@@ -1,7 +1,22 @@
+# Target: either a synthetic planet with known truth, or an HDF5 file
+# (see scripts/retrieve.py for the expected layout)
+synthetic_test: false
+target_spectrum: null
+target_index: 0
+
 n_walkers: 64
 n_steps: 5000
 burn_in: 1000
 thin: 5
-sigma: 50e-6   # observational noise in transit depth units (~50 ppm)
-vectorize: true
+seed: 0
+# Observational 1σ noise in transit depth units (~50 ppm). Used when the
+# target file has no per-point "sigma" dataset.
+sigma: 50e-6
+# Add the surrogate's own per-wavelength error (measured by calibrate.py) to
+# the noise in quadrature. Needs checkpoints/conformal_state.pt.
+include_model_error: true
+# Observation grid: null = the model's native 300-point grid, or a JWST
+# instrument name (niriss_soss, nirspec_prism, nirspec_g140m, nirspec_g395m)
+# when the target is binned to that instrument.
+instrument: null
 progress: true
