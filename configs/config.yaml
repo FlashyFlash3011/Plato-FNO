@@ -3,6 +3,7 @@ defaults:
   - model: fno1d
   - train: default
   - retrieval: emcee
+  - evaluate: default
   - _self_
 
 project_name: plato-fno

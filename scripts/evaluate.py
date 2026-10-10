@@ -40,6 +40,37 @@ from plato_fno.models.surrogate import load_surrogate
 from plato_fno.physics.atmosphere import AtmosphericState, PARAM_NAMES
 
 
+def _time_prt(cfg: DictConfig, log) -> tuple[float, str]:
+    """Time real petitRADTRANS calls, or fall back to the configured estimate.
+
+    Returns (seconds per call, "measured" or "assumed").
+    """
+    try:
+        from plato_fno.physics.petitrt_driver import build_radtrans, compute_spectrum
+
+        prt, pressures, wavelengths = build_radtrans(
+            list(cfg.data.species),
+            tuple(cfg.data.wavelength_range),
+            cfg.data.n_wavelengths,
+            cfg.data.n_layers,
+        )
+        rng = np.random.default_rng(cfg.seed)
+        states = [
+            AtmosphericState.sample_prior(rng) for _ in range(cfg.evaluate.n_prt_timing_calls)
+        ]
+        compute_spectrum(states[0], prt, pressures, wavelengths)  # warm-up
+        t0 = time.perf_counter()
+        for state in states:
+            compute_spectrum(state, prt, pressures, wavelengths)
+        return (time.perf_counter() - t0) / len(states), "measured"
+    except Exception as exc:  # pRT or its opacity data missing
+        log.warning(
+            f"Could not time petitRADTRANS ({exc}); "
+            f"assuming {cfg.evaluate.prt_seconds_per_call} s per call"
+        )
+        return float(cfg.evaluate.prt_seconds_per_call), "assumed"
+
+
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
     log = setup_run_logging("evaluate")
@@ -50,7 +81,7 @@ def main(cfg: DictConfig) -> None:
     results_dir.mkdir(parents=True, exist_ok=True)
     hdf5_path   = Path(cfg.data.output_path)
 
-    n_retrieval_targets = OmegaConf.select(cfg, "evaluate.n_retrieval_targets", default=20)
+    n_retrieval_targets = cfg.evaluate.n_retrieval_targets
 
     # ------------------------------------------------------------------
     # Load model
@@ -116,34 +147,18 @@ def main(cfg: DictConfig) -> None:
     t_fno_batch = benchmark_inference_time(
         model, batch_size=cfg.retrieval.n_walkers, device=device
     )
-
-    # petitRADTRANS baseline — use a reasonable estimate if pRT not installed
-    try:
-        from plato_fno.physics.petitrt_driver import _PRT_AVAILABLE
-        if _PRT_AVAILABLE:
-            # Time one pRT call (single sample)
-            import os
-            from plato_fno.physics.petitrt_driver import build_prt_object, compute_spectrum
-            rng = np.random.default_rng(99)
-            state = AtmosphericState.sample_prior(rng)
-            prt_obj = None  # build if needed
-            t_prt_start = time.perf_counter()
-            # Just measure import + call overhead estimate
-            t_prt = 0.5  # conservative estimate
-        else:
-            t_prt = 0.5  # fallback estimate: 500ms / pRT call
-    except Exception:
-        t_prt = 0.5
+    t_prt, prt_timing = _time_prt(cfg, log)
 
     n_walkers = cfg.retrieval.n_walkers
     speedup = speedup_ratio(t_prt, t_fno_single, t_fno_batch, n_walkers=n_walkers)
     speedup["t_fno_single_ms"] = t_fno_single * 1e3
     speedup["t_fno_batch_ms"] = t_fno_batch * 1e3
-    speedup["t_prt_estimate_s"] = t_prt
+    speedup["t_prt_s"] = t_prt
+    speedup["prt_timing"] = prt_timing
 
     log.info(f"  FNO single call:  {t_fno_single * 1e3:.2f} ms")
     log.info(f"  FNO batch={n_walkers}:     {t_fno_batch * 1e3:.2f} ms")
-    log.info(f"  pRT estimate:     {t_prt * 1e3:.0f} ms")
+    log.info(f"  pRT per call:     {t_prt * 1e3:.0f} ms ({prt_timing})")
     log.info(f"  Single speedup:   {speedup['single_call']:.0f}×")
     log.info(
         f"  Batched speedup:  {speedup['batched_step']:.0f}× "

@@ -1,0 +1,6 @@
+# Number of synthetic planets to retrieve when checking posterior coverage
+n_retrieval_targets: 20
+# Used for the speed-up numbers only when petitRADTRANS (with its opacity
+# data) is not available to time directly. Reported as "assumed" in that case.
+prt_seconds_per_call: 0.5
+n_prt_timing_calls: 5
