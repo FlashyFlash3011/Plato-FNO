@@ -1,6 +1,11 @@
 """Phase 2: Train the AtmosphereSurrogate FNO on generated spectra.
 
-Follows the training loop pattern from Solaris/projects/hurricane_flood/train.py.
+Writes two checkpoints to ``checkpoint_dir``, both loadable with
+``plato_fno.models.load_surrogate`` (they carry the architecture and the
+normaliser stats):
+
+- ``best_surrogate.pt``: lowest validation loss
+- ``last_surrogate.pt``: latest epoch, plus optimizer state
 
 Usage
 -----
@@ -15,21 +20,21 @@ from pathlib import Path
 import hydra
 import torch
 import torch.nn.functional as F
-from torch.amp import GradScaler, autocast
-from loguru import logger
-from omegaconf import DictConfig
-
-from solaris.metrics.metrics import relative_l2_error, rmse
-from solaris.utils.checkpoint import save_checkpoint
-from solaris.utils.logging import get_logger
-from solaris.utils.seed import set_seed
-from solaris.utils.training import AutoCheckpoint, EarlyStopping, GradientClipper, WarmupCosineScheduler
+from omegaconf import DictConfig, OmegaConf
 from solaris.datapipes.dataset import build_dataloader
+from solaris.metrics.metrics import relative_l2_error, rmse
+from solaris.utils.seed import set_seed
+from solaris.utils.training import EarlyStopping, GradientClipper, WarmupCosineScheduler
+from torch.amp import GradScaler, autocast
 
 from plato_fno.data.dataset import load_raw_arrays, make_splits, split_indices
 from plato_fno.data.normalizer import SpectrumNormalizer
-from plato_fno.models.surrogate import AtmosphereSurrogate, apply_overtone_spectral_init
-
+from plato_fno.models.surrogate import (
+    AtmosphereSurrogate,
+    apply_overtone_spectral_init,
+    save_surrogate,
+)
+from plato_fno.utils import resolve_device, setup_run_logging
 
 
 def loss_fn(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -42,8 +47,8 @@ def loss_fn(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
     set_seed(cfg.seed)
-    log = get_logger(__name__)
-    device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
+    log = setup_run_logging("train")
+    device = resolve_device(cfg.device)
     log.info(f"Device: {device}")
 
     ckpt_dir = Path(cfg.checkpoint_dir)
@@ -52,15 +57,12 @@ def main(cfg: DictConfig) -> None:
     hdf5_path = Path(cfg.data.output_path)
     if not hdf5_path.exists():
         raise FileNotFoundError(
-            f"HDF5 dataset not found at {hdf5_path}. "
-            "Run scripts/generate_data.py first."
+            f"HDF5 dataset not found at {hdf5_path}. Run scripts/generate_data.py first."
         )
 
     # ------------------------------------------------------------------
-    # Discover training indices and fit normalizer on training split only
+    # Fit the normaliser on the training split only
     # ------------------------------------------------------------------
-    log.info("Computing normalisation statistics from training split ...")
-
     split_kwargs = dict(
         train_frac=cfg.train.train_frac,
         val_frac=cfg.train.val_frac,
@@ -68,21 +70,18 @@ def main(cfg: DictConfig) -> None:
         seed=cfg.seed,
     )
     train_idx = split_indices(hdf5_path, **split_kwargs)["train"]
+    normalizer = SpectrumNormalizer().fit(*load_raw_arrays(hdf5_path, train_idx))
 
-    train_params, train_spectra = load_raw_arrays(hdf5_path, train_idx)
-    normalizer = SpectrumNormalizer().fit(train_params, train_spectra)
-    normalizer.save(ckpt_dir / "norm_stats.npz")
-    log.info(f"Normalizer saved to {ckpt_dir / 'norm_stats.npz'}")
-
-    # ------------------------------------------------------------------
-    # Datasets and dataloaders
-    # ------------------------------------------------------------------
     splits = make_splits(hdf5_path, normalizer, **split_kwargs)
-    train_ds, val_ds = splits["train"], splits["val"]
     log.info("Splits: " + ", ".join(f"{k}={len(v)}" for k, v in splits.items()))
 
-    train_loader = build_dataloader(train_ds, batch_size=cfg.train.batch_size, shuffle=True)
-    val_loader   = build_dataloader(val_ds,   batch_size=cfg.train.batch_size * 2, shuffle=False)
+    # Data lives in memory, so worker processes would only add overhead.
+    train_loader = build_dataloader(
+        splits["train"], batch_size=cfg.train.batch_size, shuffle=True, num_workers=0
+    )
+    val_loader = build_dataloader(
+        splits["val"], batch_size=cfg.train.batch_size * 2, shuffle=False, num_workers=0
+    )
 
     # ------------------------------------------------------------------
     # Model
@@ -94,7 +93,6 @@ def main(cfg: DictConfig) -> None:
         n_layers=cfg.model.n_layers,
         modes=cfg.model.modes,
     ).to(device)
-
     log.info(f"AtmosphereSurrogate: {model.num_parameters():,} parameters")
 
     # Overtone spectral init: reinitialise FNO Fourier weights with power-law
@@ -107,8 +105,6 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     # Optimiser and schedulers (Solaris utilities)
     # ------------------------------------------------------------------
-    # beta1=0.98 (vs PyTorch default 0.9): ported from parameter-golf long-context
-    # experiments where higher momentum improved convergence stability.
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=cfg.train.lr,
@@ -123,16 +119,19 @@ def main(cfg: DictConfig) -> None:
         min_lr=cfg.train.min_lr,
     )
     early_stop = EarlyStopping(patience=cfg.train.early_stopping_patience, mode="min")
-    clipper    = GradientClipper(max_norm=cfg.train.grad_clip)
-    auto_ckpt  = AutoCheckpoint(ckpt_dir / "best_surrogate.pt", mode="min")
+    clipper = GradientClipper(max_norm=cfg.train.grad_clip)
 
-    # Mixed precision setup. BF16 is preferred on ROCm/RDNA4 (no loss scaling
-    # needed). FP16 needs a GradScaler. "none" disables autocast entirely.
+    # Mixed precision. BF16 needs no loss scaling; FP16 needs a GradScaler.
     amp_dtype_str = cfg.train.amp_dtype
+    if amp_dtype_str not in ("none", "bf16", "fp16"):
+        raise ValueError(f"train.amp_dtype must be none, bf16 or fp16, got {amp_dtype_str!r}")
     use_amp = amp_dtype_str != "none" and device.type == "cuda"
     amp_dtype = torch.bfloat16 if amp_dtype_str == "bf16" else torch.float16
     scaler = GradScaler(device=device.type) if (use_amp and amp_dtype == torch.float16) else None
     log.info(f"Mixed precision: {amp_dtype_str if use_amp else 'disabled'}")
+
+    run_info = {"config": OmegaConf.to_container(cfg, resolve=True)}
+    best_val = float("inf")
 
     # ------------------------------------------------------------------
     # Training loop
@@ -143,12 +142,12 @@ def main(cfg: DictConfig) -> None:
         train_loss = 0.0
 
         for batch in train_loader:
-            x = batch["input"].to(device)    # (B, N_PARAMS)
-            y = batch["target"].to(device)   # (B, 1, L)
+            x = batch["input"].to(device)  # (B, N_PARAMS)
+            y = batch["target"].to(device)  # (B, 1, L)
 
             optimizer.zero_grad()
             with autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
-                pred = model(x)              # (B, 1, L)
+                pred = model(x)  # (B, 1, L)
                 loss = loss_fn(pred, y)
 
             if scaler is not None:
@@ -170,7 +169,6 @@ def main(cfg: DictConfig) -> None:
         model.eval()
         val_loss = 0.0
         val_rmse = 0.0
-
         with torch.no_grad():
             for batch in val_loader:
                 x = batch["input"].to(device)
@@ -178,7 +176,6 @@ def main(cfg: DictConfig) -> None:
                 pred = model(x)
                 val_loss += loss_fn(pred, y).item()
                 val_rmse += rmse(pred, y).item()
-
         val_loss /= len(val_loader)
         val_rmse /= len(val_loader)
 
@@ -193,27 +190,34 @@ def main(cfg: DictConfig) -> None:
                 f"lr={optimizer.param_groups[0]['lr']:.2e}"
             )
 
-        # Checkpoint + early stopping
-        save_checkpoint(
+        if val_loss < best_val:
+            best_val = val_loss
+            save_surrogate(
+                ckpt_dir / "best_surrogate.pt",
+                model,
+                normalizer,
+                epoch=epoch,
+                val_loss=val_loss,
+                **run_info,
+            )
+        save_surrogate(
             ckpt_dir / "last_surrogate.pt",
             model,
-            optimizer,
+            normalizer,
             epoch=epoch,
-            loss=val_loss,
-            extra={
-                **model.architecture_kwargs(),
-                "amp_dtype":              amp_dtype_str,
-                "spectral_init_exponent": exponent,
-                "beta1":                  cfg.train.beta1,
-            },
+            val_loss=val_loss,
+            optimizer_state_dict=optimizer.state_dict(),
+            scheduler_state_dict=scheduler.state_dict(),
+            **run_info,
         )
-        auto_ckpt.update(model, val_loss)
 
         if early_stop.step(val_loss):
             log.info(f"Early stopping at epoch {epoch}")
             break
 
-    log.success(f"Training complete. Best model at {ckpt_dir / 'best_surrogate.pt'}")
+    log.success(
+        f"Training complete. Best val_loss={best_val:.4e} at {ckpt_dir / 'best_surrogate.pt'}"
+    )
 
 
 if __name__ == "__main__":

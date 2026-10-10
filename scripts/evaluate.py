@@ -25,12 +25,10 @@ from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 
 from solaris.metrics.metrics import relative_l2_error, rmse, r2_score
-from solaris.utils.checkpoint import load_checkpoint
-from solaris.utils.logging import get_logger
+from plato_fno.utils import resolve_device, setup_run_logging
 from solaris.datapipes.dataset import build_dataloader
 
 from plato_fno.data.dataset import make_splits
-from plato_fno.data.normalizer import SpectrumNormalizer
 from plato_fno.metrics.retrieval_metrics import (
     benchmark_inference_time,
     parameter_bias,
@@ -38,14 +36,14 @@ from plato_fno.metrics.retrieval_metrics import (
     speedup_ratio,
 )
 from plato_fno.models.retrieval import MCMCRetrieval
-from plato_fno.models.surrogate import AtmosphereSurrogate
+from plato_fno.models.surrogate import load_surrogate
 from plato_fno.physics.atmosphere import AtmosphericState, PARAM_NAMES
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    log = get_logger(__name__)
-    device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
+    log = setup_run_logging("evaluate")
+    device = resolve_device(cfg.device)
 
     ckpt_dir    = Path(cfg.checkpoint_dir)
     results_dir = Path(cfg.results_dir)
@@ -57,18 +55,8 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     # Load model
     # ------------------------------------------------------------------
-    model = AtmosphereSurrogate(
-        n_wavelengths=cfg.model.n_wavelengths,
-        n_enc=cfg.model.n_enc,
-        hidden_channels=cfg.model.hidden_channels,
-        n_layers=cfg.model.n_layers,
-        modes=cfg.model.modes,
-    )
-    ckpt = torch.load(ckpt_dir / "best_surrogate.pt", map_location=device, weights_only=False)
-    model.load_state_dict(ckpt if isinstance(ckpt, dict) and "model_state_dict" not in ckpt else ckpt["model_state_dict"])
-    model.to(device).eval()
+    model, normalizer, _ = load_surrogate(ckpt_dir / "best_surrogate.pt", device)
 
-    normalizer = SpectrumNormalizer.load(ckpt_dir / "norm_stats.npz")
     log.info("Model and normalizer loaded")
 
     # ------------------------------------------------------------------

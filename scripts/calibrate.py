@@ -21,12 +21,10 @@ from loguru import logger
 from omegaconf import DictConfig
 
 from solaris.models.conformal import ConformalNeuralOperator
-from solaris.utils.checkpoint import load_checkpoint
-from solaris.utils.logging import get_logger
+from plato_fno.utils import resolve_device, setup_run_logging
 
 from plato_fno.data.dataset import make_splits
-from plato_fno.data.normalizer import SpectrumNormalizer
-from plato_fno.models.surrogate import AtmosphereSurrogate
+from plato_fno.models.surrogate import AtmosphereSurrogate, load_surrogate
 from solaris.datapipes.dataset import build_dataloader
 
 
@@ -47,8 +45,8 @@ class _SurrogateAdapter(torch.nn.Module):
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
-    log = get_logger(__name__)
-    device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
+    log = setup_run_logging("calibrate")
+    device = resolve_device(cfg.device)
 
     ckpt_dir = Path(cfg.checkpoint_dir)
     hdf5_path = Path(cfg.data.output_path)
@@ -56,22 +54,8 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     # Load trained surrogate
     # ------------------------------------------------------------------
-    model = AtmosphereSurrogate(
-        n_wavelengths=cfg.model.n_wavelengths,
-        n_enc=cfg.model.n_enc,
-        hidden_channels=cfg.model.hidden_channels,
-        n_layers=cfg.model.n_layers,
-        modes=cfg.model.modes,
-    )
-    ckpt = torch.load(ckpt_dir / "best_surrogate.pt", map_location=device, weights_only=False)
-    model.load_state_dict(ckpt if isinstance(ckpt, dict) and "model_state_dict" not in ckpt else ckpt["model_state_dict"])
-    model.to(device).eval()
+    model, normalizer, _ = load_surrogate(ckpt_dir / "best_surrogate.pt", device)
     log.info("Loaded best_surrogate.pt")
-
-    # ------------------------------------------------------------------
-    # Load normalizer
-    # ------------------------------------------------------------------
-    normalizer = SpectrumNormalizer.load(ckpt_dir / "norm_stats.npz")
 
     # ------------------------------------------------------------------
     # Calibration split
