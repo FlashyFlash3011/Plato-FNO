@@ -9,6 +9,10 @@ Conformal guarantee: for a new sample, the whole true spectrum lies inside
 In physical units that band is ``q_hat * spec_std(λ)`` wide, so it differs per
 wavelength; ``band_ppm`` in the saved state holds it.
 
+The band is a worst-case bound over the whole spectrum, not a 1σ error, so the
+retrieval does not use it as noise. It uses ``model_sigma`` instead: the
+surrogate's RMSE per wavelength on the calibration set.
+
 Usage
 -----
     python scripts/calibrate.py
@@ -61,6 +65,16 @@ def main(cfg: DictConfig) -> None:
         f"(range {band_ppm.min():.1f}–{band_ppm.max():.1f} ppm across wavelength)"
     )
 
+    # Surrogate RMSE per wavelength on the calibration set, in transit-depth
+    # units: the retrieval adds this to the observational noise.
+    with torch.no_grad():
+        cal_pred = model(cal_inputs.to(device)).cpu().numpy()
+    resid = normalizer.inverse_transform_spectra(cal_pred) - normalizer.inverse_transform_spectra(
+        cal_targets.numpy()
+    )
+    model_sigma = np.sqrt((resid**2).mean(axis=(0, 1)))  # (L,)
+    log.info(f"Surrogate RMSE: median {np.median(model_sigma) * 1e6:.1f} ppm per wavelength")
+
     report = predictor.coverage_report(test_inputs, test_targets, batch_size=256)
     log.info(
         f"Test-set coverage: {report['coverage']:.3f} (target ≥ {1 - alpha:.2f}) | "
@@ -75,6 +89,7 @@ def main(cfg: DictConfig) -> None:
             "q_hat": q_hat,
             "alpha": alpha,
             "band_ppm": band_ppm,
+            "model_sigma": model_sigma,
             "test_coverage_report": report,
         },
         out_path,
