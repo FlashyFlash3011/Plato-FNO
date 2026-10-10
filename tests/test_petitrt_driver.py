@@ -9,7 +9,7 @@ import pytest
 from plato_fno.physics.atmosphere import N_PARAMS, AtmosphericState
 
 N_WAVELENGTHS = 30
-N_SAMPLES     = 8
+N_SAMPLES = 8
 
 
 def _mock_spectrum(state_vec: np.ndarray) -> np.ndarray:
@@ -38,9 +38,9 @@ def test_generate_dataset_hdf5_mock(tmp_path):
             mock_pool = MagicMock()
             mock_pool.__enter__ = lambda s: s
             mock_pool.__exit__ = MagicMock(return_value=False)
-            mock_pool.imap.return_value = iter([
-                _mock_spectrum(np.zeros(N_PARAMS)) for _ in range(N_SAMPLES)
-            ])
+            mock_pool.imap.return_value = iter(
+                [_mock_spectrum(np.zeros(N_PARAMS)) for _ in range(N_SAMPLES)]
+            )
             mock_ctx.return_value.Pool.return_value = mock_pool
 
             petitrt_driver.generate_dataset_hdf5(
@@ -57,11 +57,11 @@ def test_generate_dataset_hdf5_mock(tmp_path):
     assert output_path.exists()
 
     with h5py.File(output_path, "r") as f:
-        assert "input"  in f
+        assert "input" in f
         assert "target" in f
         assert "wavelengths" in f
 
-        assert f["input"].shape  == (N_SAMPLES, N_PARAMS)
+        assert f["input"].shape == (N_SAMPLES, N_PARAMS)
         assert f["target"].shape == (N_SAMPLES, 1, N_WAVELENGTHS)
         assert f["wavelengths"].shape == (N_WAVELENGTHS,)
 
@@ -80,9 +80,9 @@ def test_hdf5_input_values_are_physical(tmp_path):
             mock_pool = MagicMock()
             mock_pool.__enter__ = lambda s: s
             mock_pool.__exit__ = MagicMock(return_value=False)
-            mock_pool.imap.return_value = iter([
-                _mock_spectrum(np.zeros(N_PARAMS)) for _ in range(N_SAMPLES)
-            ])
+            mock_pool.imap.return_value = iter(
+                [_mock_spectrum(np.zeros(N_PARAMS)) for _ in range(N_SAMPLES)]
+            )
             mock_ctx.return_value.Pool.return_value = mock_pool
 
             petitrt_driver.generate_dataset_hdf5(
@@ -159,7 +159,11 @@ def test_compute_spectrum_inputs_to_prt():
     assert kwargs["reference_gravity"] == pytest.approx(10**state.log_g)
     assert kwargs["mean_molar_masses"].min() > 2.5
     expected_T = petitrt_driver.guillot_temperature_profile(
-        pressures, state.T_int, state.T_eq, 10**state.log_kappa_IR, 10**state.log_gamma,
+        pressures,
+        state.T_int,
+        state.T_eq,
+        10**state.log_kappa_IR,
+        10**state.log_gamma,
         gravity=10**state.log_g,
     )
     np.testing.assert_allclose(kwargs["temperatures"], expected_T)

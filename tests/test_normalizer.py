@@ -9,13 +9,13 @@ import pytest
 from plato_fno.data.normalizer import SpectrumNormalizer
 from plato_fno.physics.atmosphere import N_PARAMS
 
-N_SAMPLES    = 200
+N_SAMPLES = 200
 N_WAVELENGTHS = 50
 
 
 def _make_data(seed: int = 0):
     rng = np.random.default_rng(seed)
-    params  = rng.uniform(-1, 1, (N_SAMPLES, N_PARAMS)).astype(np.float32)
+    params = rng.uniform(-1, 1, (N_SAMPLES, N_PARAMS)).astype(np.float32)
     spectra = rng.uniform(0.01, 0.02, (N_SAMPLES, 1, N_WAVELENGTHS)).astype(np.float32)
     return params, spectra
 
@@ -67,7 +67,7 @@ def test_save_load_roundtrip():
         norm2 = SpectrumNormalizer.load(path)
 
         np.testing.assert_allclose(norm.param_mean, norm2.param_mean)
-        np.testing.assert_allclose(norm.spec_std,   norm2.spec_std)
+        np.testing.assert_allclose(norm.spec_std, norm2.spec_std)
     finally:
         path.unlink(missing_ok=True)
 

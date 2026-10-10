@@ -196,12 +196,12 @@ class AtmosphereSurrogate(nn.Module):
     def architecture_kwargs(self) -> dict:
         """Return constructor kwargs for checkpoint reconstruction."""
         return {
-            "n_wavelengths":   self.n_wavelengths,
-            "n_enc":           self.n_enc,
+            "n_wavelengths": self.n_wavelengths,
+            "n_enc": self.n_enc,
             "hidden_channels": self._hidden_channels,
-            "n_layers":        self._n_layers,
-            "modes":           self._modes,
-            "norm":            self._norm,
+            "n_layers": self._n_layers,
+            "modes": self._modes,
+            "norm": self._norm,
         }
 
 

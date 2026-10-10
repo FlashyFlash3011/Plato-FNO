@@ -11,8 +11,8 @@ from plato_fno.physics.atmosphere import N_PARAMS, PARAM_NAMES
 
 
 def posterior_coverage(
-    flat_samples: np.ndarray,   # (N_samples, N_PARAMS)
-    true_theta: np.ndarray,     # (N_PARAMS,)
+    flat_samples: np.ndarray,  # (N_samples, N_PARAMS)
+    true_theta: np.ndarray,  # (N_PARAMS,)
     credible_level: float = 0.68,
 ) -> dict[str, bool]:
     """Check whether each true parameter falls within its credible interval.
@@ -32,18 +32,15 @@ def posterior_coverage(
         Maps parameter name → True if true value is within CI.
     """
     alpha = (1.0 - credible_level) / 2.0
-    lo = np.quantile(flat_samples, alpha, axis=0)    # (N_PARAMS,)
+    lo = np.quantile(flat_samples, alpha, axis=0)  # (N_PARAMS,)
     hi = np.quantile(flat_samples, 1.0 - alpha, axis=0)
 
-    return {
-        name: bool(lo[i] <= true_theta[i] <= hi[i])
-        for i, name in enumerate(PARAM_NAMES)
-    }
+    return {name: bool(lo[i] <= true_theta[i] <= hi[i]) for i, name in enumerate(PARAM_NAMES)}
 
 
 def parameter_bias(
-    flat_samples: np.ndarray,   # (N_samples, N_PARAMS)
-    true_theta: np.ndarray,     # (N_PARAMS,)
+    flat_samples: np.ndarray,  # (N_samples, N_PARAMS)
+    true_theta: np.ndarray,  # (N_PARAMS,)
 ) -> dict[str, float]:
     """Compute signed bias (posterior median - truth) for each parameter.
 
@@ -58,10 +55,7 @@ def parameter_bias(
         Maps parameter name → bias (median - truth).
     """
     medians = np.median(flat_samples, axis=0)  # (N_PARAMS,)
-    return {
-        name: float(medians[i] - true_theta[i])
-        for i, name in enumerate(PARAM_NAMES)
-    }
+    return {name: float(medians[i] - true_theta[i]) for i, name in enumerate(PARAM_NAMES)}
 
 
 def posterior_width(

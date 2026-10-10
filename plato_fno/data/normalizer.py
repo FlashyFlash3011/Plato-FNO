@@ -24,9 +24,9 @@ class SpectrumNormalizer:
 
     def __init__(self) -> None:
         self.param_mean: np.ndarray | None = None
-        self.param_std:  np.ndarray | None = None
-        self.spec_mean:  np.ndarray | None = None
-        self.spec_std:   np.ndarray | None = None
+        self.param_std: np.ndarray | None = None
+        self.spec_mean: np.ndarray | None = None
+        self.spec_std: np.ndarray | None = None
         self._fitted = False
 
     # ------------------------------------------------------------------
@@ -35,7 +35,7 @@ class SpectrumNormalizer:
 
     def fit(
         self,
-        params: np.ndarray,   # (N, N_PARAMS)
+        params: np.ndarray,  # (N, N_PARAMS)
         spectra: np.ndarray,  # (N, 1, L)
     ) -> SpectrumNormalizer:
         """Compute and store normalisation statistics from training data.
@@ -43,13 +43,13 @@ class SpectrumNormalizer:
         NaN values in spectra (failed pRT calls) are excluded from stats.
         """
         self.param_mean = params.mean(axis=0).astype(np.float32)
-        self.param_std  = params.std(axis=0).clip(min=1e-8).astype(np.float32)
+        self.param_std = params.std(axis=0).clip(min=1e-8).astype(np.float32)
 
         # spectra: (N, 1, L) — compute mean/std over N, keep (1, L) shape
         valid_mask = np.isfinite(spectra).all(axis=(1, 2))  # (N,)
         valid_spectra = spectra[valid_mask]  # (N_valid, 1, L)
         self.spec_mean = valid_spectra.mean(axis=0).astype(np.float32)
-        self.spec_std  = valid_spectra.std(axis=0).clip(min=1e-12).astype(np.float32)
+        self.spec_std = valid_spectra.std(axis=0).clip(min=1e-12).astype(np.float32)
 
         self._fitted = True
         return self

@@ -76,10 +76,10 @@ def main(cfg: DictConfig) -> None:
     log = setup_run_logging("evaluate")
     device = resolve_device(cfg.device)
 
-    ckpt_dir    = Path(cfg.checkpoint_dir)
+    ckpt_dir = Path(cfg.checkpoint_dir)
     results_dir = Path(cfg.results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
-    hdf5_path   = Path(cfg.data.output_path)
+    hdf5_path = Path(cfg.data.output_path)
 
     n_retrieval_targets = cfg.evaluate.n_retrieval_targets
 
@@ -105,7 +105,7 @@ def main(cfg: DictConfig) -> None:
     )["test"]
     test_loader = build_dataloader(test_ds, batch_size=256, shuffle=False, num_workers=0)
 
-    all_preds   = []
+    all_preds = []
     all_targets = []
 
     with torch.no_grad():
@@ -116,12 +116,12 @@ def main(cfg: DictConfig) -> None:
             all_preds.append(pred.cpu())
             all_targets.append(y.cpu())
 
-    preds   = torch.cat(all_preds,   dim=0)  # (N, 1, L)
+    preds = torch.cat(all_preds, dim=0)  # (N, 1, L)
     targets = torch.cat(all_targets, dim=0)  # (N, 1, L)
 
     rel_l2 = relative_l2_error(preds, targets).item()
     rmse_norm = rmse(preds, targets).item()
-    r2    = r2_score(preds, targets).item()
+    r2 = r2_score(preds, targets).item()
 
     # RMSE in physical units (the normalised scale differs per wavelength)
     preds_phys = normalizer.inverse_transform_spectra(preds.numpy())
@@ -130,18 +130,17 @@ def main(cfg: DictConfig) -> None:
     rmse_ppm = float(np.sqrt((rmse_per_wl_ppm**2).mean()))
 
     spectral_metrics = {
-        "relative_l2":  rel_l2,
+        "relative_l2": rel_l2,
         "rmse_normalised": rmse_norm,
-        "rmse_ppm":     rmse_ppm,
+        "rmse_ppm": rmse_ppm,
         "rmse_ppm_worst_wavelength": float(rmse_per_wl_ppm.max()),
-        "r2_score":     r2,
+        "r2_score": r2,
         "n_test_samples": len(test_ds),
     }
 
     log.info(f"  Relative L2:   {rel_l2:.4f}")
     log.info(
-        f"  RMSE:          {rmse_ppm:.2f} ppm "
-        f"(worst wavelength {rmse_per_wl_ppm.max():.2f} ppm)"
+        f"  RMSE:          {rmse_ppm:.2f} ppm (worst wavelength {rmse_per_wl_ppm.max():.2f} ppm)"
     )
     log.info(f"  R² score:      {r2:.4f}")
 
@@ -151,9 +150,7 @@ def main(cfg: DictConfig) -> None:
     log.info("=== 2. Inference speedup ===")
 
     t_fno_single = benchmark_inference_time(model, batch_size=1, device=device)
-    t_fno_batch = benchmark_inference_time(
-        model, batch_size=cfg.retrieval.n_walkers, device=device
-    )
+    t_fno_batch = benchmark_inference_time(model, batch_size=cfg.retrieval.n_walkers, device=device)
     t_prt, prt_timing = _time_prt(cfg, log)
 
     n_walkers = cfg.retrieval.n_walkers
@@ -168,8 +165,7 @@ def main(cfg: DictConfig) -> None:
     log.info(f"  pRT per call:     {t_prt * 1e3:.0f} ms ({prt_timing})")
     log.info(f"  Single speedup:   {speedup['single_call']:.0f}×")
     log.info(
-        f"  Batched speedup:  {speedup['batched_step']:.0f}× "
-        f"(per MCMC step, {n_walkers} walkers)"
+        f"  Batched speedup:  {speedup['batched_step']:.0f}× (per MCMC step, {n_walkers} walkers)"
     )
 
     # ------------------------------------------------------------------
@@ -220,7 +216,7 @@ def main(cfg: DictConfig) -> None:
             bias_per_param[name].append(bia[name])
 
     mean_coverage = {name: float(np.mean(v)) for name, v in coverage_per_param.items()}
-    mean_bias     = {name: float(np.mean(v)) for name, v in bias_per_param.items()}
+    mean_bias = {name: float(np.mean(v)) for name, v in bias_per_param.items()}
     overall_coverage = float(np.mean(list(mean_coverage.values())))
 
     log.info(f"  Overall 68% CI coverage: {overall_coverage:.3f}  (ideal ≈ 0.68)")
@@ -238,12 +234,12 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     all_metrics = {
         "spectral_accuracy": spectral_metrics,
-        "speedup":           speedup,
+        "speedup": speedup,
         "retrieval_fidelity": {
-            "n_targets":       len(picks),
-            "n_converged":     n_converged,
+            "n_targets": len(picks),
+            "n_converged": n_converged,
             "overall_coverage_68": overall_coverage,
-            "per_param_coverage":  mean_coverage,
+            "per_param_coverage": mean_coverage,
             "per_param_mean_bias": mean_bias,
         },
     }

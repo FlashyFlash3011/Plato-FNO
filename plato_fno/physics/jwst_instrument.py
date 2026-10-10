@@ -35,7 +35,7 @@ import numpy as np
 
 # Instrument: (lambda_min, lambda_max, n_bins)
 JWST_INSTRUMENTS: dict[str, tuple[float, float, int]] = {
-    "niriss_soss":   (0.60, 2.80, 40),
+    "niriss_soss": (0.60, 2.80, 40),
     "nirspec_prism": (0.60, 5.00, 30),
     "nirspec_g140m": (0.97, 1.87, 50),
     "nirspec_g395m": (2.87, 5.00, 40),
@@ -44,7 +44,7 @@ JWST_INSTRUMENTS: dict[str, tuple[float, float, int]] = {
 # Illustrative per-bin 1σ transit-depth noise [ppm] for a V=10 host star,
 # one transit (see module docstring)
 NOISE_PPM_V10: dict[str, float] = {
-    "niriss_soss":   60.0,
+    "niriss_soss": 60.0,
     "nirspec_prism": 50.0,
     "nirspec_g140m": 80.0,
     "nirspec_g395m": 90.0,

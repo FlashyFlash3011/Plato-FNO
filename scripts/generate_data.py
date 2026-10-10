@@ -23,7 +23,9 @@ def main(cfg: DictConfig) -> None:
     output_path = Path(to_absolute_path(cfg.data.output_path))
 
     logger.info(f"Generating {cfg.data.n_samples} atmosphere–spectrum pairs")
-    logger.info(f"Wavelength range: {cfg.data.wavelength_range} µm, {cfg.data.n_wavelengths} points")
+    logger.info(
+        f"Wavelength range: {cfg.data.wavelength_range} µm, {cfg.data.n_wavelengths} points"
+    )
     logger.info(f"Species: {list(cfg.data.species)}")
     logger.info(f"Workers: {cfg.data.n_workers}, Chunks: {cfg.data.chunk_size}")
     logger.info(f"Output: {output_path}")

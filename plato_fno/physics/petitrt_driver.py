@@ -111,6 +111,7 @@ def _compute_one(state_vec: np.ndarray) -> np.ndarray | None:
     Called inside worker processes. Returns shape (n_wavelengths,) or None on error.
     """
     import time
+
     global _worker_prt, _worker_pressures, _worker_wavelengths, _worker_sleep
 
     try:
@@ -127,6 +128,7 @@ def _compute_one(state_vec: np.ndarray) -> np.ndarray | None:
 # ---------------------------------------------------------------------------
 # Core spectrum computation (pRT v3 API)
 # ---------------------------------------------------------------------------
+
 
 def compute_spectrum(
     state: AtmosphericState,
@@ -171,7 +173,7 @@ def compute_spectrum(
         "H2O": state.log_X_H2O,
         "CO2": state.log_X_CO2,
         "CH4": state.log_X_CH4,
-        "CO":  state.log_X_CO,
+        "CO": state.log_X_CO,
         "NH3": state.log_X_NH3,
     }
     total_trace = sum(10.0**lx for lx in log_x_map.values())
@@ -189,8 +191,8 @@ def compute_spectrum(
     # from the actual mix instead of assuming solar H2/He (2.33).
     mean_molar_masses = compute_mean_molar_masses(mass_fractions)
 
-    R_planet_cm = state.R_planet * 7.1492e9   # R_jup → cm
-    R_star_cm   = state.R_star   * 6.957e10   # R_sun → cm
+    R_planet_cm = state.R_planet * 7.1492e9  # R_jup → cm
+    R_star_cm = state.R_star * 6.957e10  # R_sun → cm
 
     # pRT v3 returns (wlen_cm, transit_radii_cm, extras_dict)
     # reference_pressure: highest pressure point = pressures[-1] in ascending grid
@@ -203,7 +205,7 @@ def compute_spectrum(
         planet_radius=R_planet_cm,
         variable_gravity=True,
         opaque_cloud_top_pressure=10.0**state.log_P_cloud,  # bar
-        frequencies_to_wavelengths=True,   # wlen_cm in ascending cm
+        frequencies_to_wavelengths=True,  # wlen_cm in ascending cm
     )
 
     # Convert wavelength from cm to µm; compute transit depth (Rp_eff/Rs)^2
@@ -216,6 +218,7 @@ def compute_spectrum(
 # ---------------------------------------------------------------------------
 # Dataset generation
 # ---------------------------------------------------------------------------
+
 
 def generate_dataset_hdf5(
     output_path: Path,
@@ -296,7 +299,7 @@ def generate_dataset_hdf5(
             chunks=(chunk, 1, n_wavelengths),
             fillvalue=np.nan,
         )
-        _         = f.create_dataset("wavelengths", data=wavelengths)
+        _ = f.create_dataset("wavelengths", data=wavelengths)
 
         # Write parameter vectors immediately (always available even if spectrum fails)
         ds_input[:] = param_vecs

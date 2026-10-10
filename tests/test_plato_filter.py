@@ -12,7 +12,7 @@ from plato_fno.physics.plato_filter import (
 
 # Use a dense grid so band edges are well-sampled by trapezoid integration
 N_WAVELENGTHS = 5000
-WAVELENGTHS   = np.linspace(0.3, 5.0, N_WAVELENGTHS)
+WAVELENGTHS = np.linspace(0.3, 5.0, N_WAVELENGTHS)
 
 
 BANDS = {"ncam", "fcam_blue", "fcam_red"}
@@ -32,14 +32,14 @@ def test_integrate_constant_spectrum():
 
 def test_integrate_returns_all_bands():
     spectrum = np.ones(N_WAVELENGTHS)
-    result   = integrate_spectrum_to_photometry(spectrum, WAVELENGTHS)
+    result = integrate_spectrum_to_photometry(spectrum, WAVELENGTHS)
     assert set(result.keys()) == BANDS
 
 
 def test_integrate_custom_bandpasses():
     spectrum = np.ones(N_WAVELENGTHS) * 2.0
-    custom   = {"full": (0.3, 5.0)}
-    result   = integrate_spectrum_to_photometry(spectrum, WAVELENGTHS, bandpasses=custom)
+    custom = {"full": (0.3, 5.0)}
+    result = integrate_spectrum_to_photometry(spectrum, WAVELENGTHS, bandpasses=custom)
     np.testing.assert_allclose(result["full"], 2.0, rtol=1e-3)
 
 
@@ -48,7 +48,10 @@ def test_add_plato_noise_has_requested_sigma_independent_of_depth():
     for depth in (0.001, 0.05):
         phot = {b: depth for b in BANDS}
         draws = np.array(
-            [list(add_plato_noise(phot, {b: 100.0 for b in BANDS}, rng).values()) for _ in range(4000)]
+            [
+                list(add_plato_noise(phot, {b: 100.0 for b in BANDS}, rng).values())
+                for _ in range(4000)
+            ]
         )
         np.testing.assert_allclose(draws.std(axis=0), 100e-6, rtol=0.1)
 

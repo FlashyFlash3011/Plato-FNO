@@ -50,19 +50,25 @@ def test_in_prior_out_of_bounds():
 
 def test_guillot_profile_shape():
     pressures = np.logspace(2, -6, 60)
-    T = guillot_temperature_profile(pressures, T_int=200.0, T_eq=1500.0, kappa_IR=0.01, gamma=0.4, gravity=1e3)
+    T = guillot_temperature_profile(
+        pressures, T_int=200.0, T_eq=1500.0, kappa_IR=0.01, gamma=0.4, gravity=1e3
+    )
     assert T.shape == (60,)
 
 
 def test_guillot_profile_positive():
     pressures = np.logspace(2, -6, 60)
-    T = guillot_temperature_profile(pressures, T_int=200.0, T_eq=1500.0, kappa_IR=0.01, gamma=0.4, gravity=1e3)
+    T = guillot_temperature_profile(
+        pressures, T_int=200.0, T_eq=1500.0, kappa_IR=0.01, gamma=0.4, gravity=1e3
+    )
     assert (T > 0).all(), "Temperatures should be positive"
 
 
 def test_guillot_profile_physical_range():
     pressures = np.logspace(2, -6, 60)
-    T = guillot_temperature_profile(pressures, T_int=200.0, T_eq=1500.0, kappa_IR=0.01, gamma=0.4, gravity=1e3)
+    T = guillot_temperature_profile(
+        pressures, T_int=200.0, T_eq=1500.0, kappa_IR=0.01, gamma=0.4, gravity=1e3
+    )
     # Should be between ~50 K and ~5000 K for physical inputs
     assert T.min() > 50.0
     assert T.max() < 10000.0

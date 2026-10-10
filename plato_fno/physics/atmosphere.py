@@ -15,10 +15,20 @@ N_PARAMS: int = 14
 
 # Ordered parameter names (matches to_vector / from_vector)
 PARAM_NAMES: list[str] = [
-    "T_int", "T_eq", "log_kappa_IR", "log_gamma",
-    "log_X_H2O", "log_X_CO2", "log_X_CH4", "log_X_CO", "log_X_NH3",
-    "log_g", "R_planet", "R_star",
-    "log_P_cloud", "f_sed",
+    "T_int",
+    "T_eq",
+    "log_kappa_IR",
+    "log_gamma",
+    "log_X_H2O",
+    "log_X_CO2",
+    "log_X_CH4",
+    "log_X_CO",
+    "log_X_NH3",
+    "log_g",
+    "R_planet",
+    "R_star",
+    "log_P_cloud",
+    "f_sed",
 ]
 
 assert len(PARAM_NAMES) == N_PARAMS, "Update PARAM_NAMES if N_PARAMS changes"
@@ -43,10 +53,10 @@ class AtmosphericState:
     """
 
     # Guillot (2010) T-P profile parameters
-    T_int: float        # internal temperature [K]
-    T_eq: float         # equilibrium temperature [K]
+    T_int: float  # internal temperature [K]
+    T_eq: float  # equilibrium temperature [K]
     log_kappa_IR: float  # log10 IR opacity [cm2/g]
-    log_gamma: float     # log10 ratio kappa_V / kappa_IR
+    log_gamma: float  # log10 ratio kappa_V / kappa_IR
 
     # Gas log10 mass fractions
     log_X_H2O: float
@@ -56,30 +66,30 @@ class AtmosphericState:
     log_X_NH3: float
 
     # System parameters
-    log_g: float        # log10 surface gravity [cm/s^2]
-    R_planet: float     # planet radius [R_jup]
-    R_star: float       # star radius [R_sun]
+    log_g: float  # log10 surface gravity [cm/s^2]
+    R_planet: float  # planet radius [R_jup]
+    R_star: float  # star radius [R_sun]
 
     # Cloud parameters
     log_P_cloud: float  # cloud-top pressure log10 [bar]
-    f_sed: float        # sedimentation factor
+    f_sed: float  # sedimentation factor
 
     # Prior bounds: (min, max) uniform prior for each parameter
     PRIOR_BOUNDS: ClassVar[dict[str, tuple[float, float]]] = {
-        "T_int":       (50.0,   800.0),
-        "T_eq":        (300.0,  3000.0),
-        "log_kappa_IR": (-4.0,  1.0),
-        "log_gamma":   (-2.0,   2.0),
-        "log_X_H2O":   (-6.0,  -1.0),
-        "log_X_CO2":   (-6.0,  -1.0),
-        "log_X_CH4":   (-6.0,  -1.0),
-        "log_X_CO":    (-6.0,  -1.0),
-        "log_X_NH3":   (-6.0,  -1.0),
-        "log_g":       (2.5,    4.5),
-        "R_planet":    (0.5,    2.0),
-        "R_star":      (0.5,    2.0),
-        "log_P_cloud": (-4.0,   2.0),
-        "f_sed":       (0.5,    10.0),
+        "T_int": (50.0, 800.0),
+        "T_eq": (300.0, 3000.0),
+        "log_kappa_IR": (-4.0, 1.0),
+        "log_gamma": (-2.0, 2.0),
+        "log_X_H2O": (-6.0, -1.0),
+        "log_X_CO2": (-6.0, -1.0),
+        "log_X_CH4": (-6.0, -1.0),
+        "log_X_CO": (-6.0, -1.0),
+        "log_X_NH3": (-6.0, -1.0),
+        "log_g": (2.5, 4.5),
+        "R_planet": (0.5, 2.0),
+        "R_star": (0.5, 2.0),
+        "log_P_cloud": (-4.0, 2.0),
+        "f_sed": (0.5, 10.0),
     }
 
     def to_vector(self) -> np.ndarray:
@@ -172,8 +182,8 @@ def guillot_temperature_profile(
 
 # The vector layout, the dataclass fields and PRIOR_BOUNDS must all agree:
 # MCMCRetrieval.log_prior indexes bounds by position.
-assert [f.name for f in fields(AtmosphericState)] == PARAM_NAMES == list(
-    AtmosphericState.PRIOR_BOUNDS
+assert (
+    [f.name for f in fields(AtmosphericState)] == PARAM_NAMES == list(AtmosphericState.PRIOR_BOUNDS)
 ), "PARAM_NAMES, AtmosphericState fields and PRIOR_BOUNDS are out of order"
 
 _R_PLANET = PARAM_NAMES.index("R_planet")

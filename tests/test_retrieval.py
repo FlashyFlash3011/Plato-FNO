@@ -10,7 +10,7 @@ from plato_fno.models.surrogate import AtmosphereSurrogate
 from plato_fno.physics.atmosphere import N_PARAMS, PARAM_NAMES, AtmosphericState
 
 N_WAVELENGTHS = 64
-N_ENC         = 16
+N_ENC = 16
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def surrogate():
 @pytest.fixture
 def normalizer():
     rng = np.random.default_rng(0)
-    params  = rng.uniform(-1, 1, (200, N_PARAMS)).astype(np.float32)
+    params = rng.uniform(-1, 1, (200, N_PARAMS)).astype(np.float32)
     spectra = rng.uniform(0.01, 0.02, (200, 1, N_WAVELENGTHS)).astype(np.float32)
     return SpectrumNormalizer().fit(params, spectra)
 
@@ -63,9 +63,7 @@ def test_log_prior_out_of_bounds(retrieval):
 
 def test_log_likelihood_batch_shape(retrieval, observed):
     rng = np.random.default_rng(0)
-    theta_batch = np.stack([
-        AtmosphericState.sample_prior(rng).to_vector() for _ in range(8)
-    ])
+    theta_batch = np.stack([AtmosphericState.sample_prior(rng).to_vector() for _ in range(8)])
     log_liks = retrieval.log_likelihood_batch(theta_batch, observed, sigma=50e-6)
     assert log_liks.shape == (8,)
     assert np.isfinite(log_liks).all()
@@ -73,9 +71,7 @@ def test_log_likelihood_batch_shape(retrieval, observed):
 
 def test_log_posterior_vectorized_shape(retrieval, observed):
     rng = np.random.default_rng(0)
-    theta_batch = np.stack([
-        AtmosphericState.sample_prior(rng).to_vector() for _ in range(16)
-    ])
+    theta_batch = np.stack([AtmosphericState.sample_prior(rng).to_vector() for _ in range(16)])
     log_post = retrieval.log_posterior_vectorized(theta_batch, observed, sigma=50e-6)
     assert log_post.shape == (16,)
 
@@ -93,7 +89,7 @@ def test_mcmc_runs_and_shape(retrieval, observed):
     flat_samples, sampler = retrieval.run(
         observed=observed,
         sigma=50e-6,
-        n_walkers=2 * N_PARAMS,   # minimum valid
+        n_walkers=2 * N_PARAMS,  # minimum valid
         n_steps=20,
         burn_in=5,
         thin=1,
@@ -140,7 +136,9 @@ def test_model_sigma_widens_likelihood(surrogate, normalizer, observed):
 
 def test_obs_transform_and_grid_mismatch(surrogate, normalizer, observed):
     theta = np.stack([AtmosphericState.sample_prior(np.random.default_rng(3)).to_vector()])
-    pairs = MCMCRetrieval(surrogate, normalizer, obs_transform=lambda p: p.reshape(len(p), -1, 2).mean(-1))
+    pairs = MCMCRetrieval(
+        surrogate, normalizer, obs_transform=lambda p: p.reshape(len(p), -1, 2).mean(-1)
+    )
     ll = pairs.log_likelihood_batch(theta, observed[: N_WAVELENGTHS // 2], 1e-4)
     assert ll.shape == (1,)
     with pytest.raises(ValueError, match="obs_transform"):
@@ -156,8 +154,16 @@ def test_initial_walkers_from_prior_are_valid_and_spread(retrieval):
 
 @pytest.mark.slow
 def test_run_is_reproducible_with_seed(retrieval, observed):
-    kwargs = dict(observed=observed, sigma=1e-3, n_walkers=2 * N_PARAMS, n_steps=15,
-                  burn_in=5, thin=1, progress=False, seed=7)
+    kwargs = dict(
+        observed=observed,
+        sigma=1e-3,
+        n_walkers=2 * N_PARAMS,
+        n_steps=15,
+        burn_in=5,
+        thin=1,
+        progress=False,
+        seed=7,
+    )
     a, sampler = retrieval.run(**kwargs)
     b, _ = retrieval.run(**kwargs)
     np.testing.assert_array_equal(a, b)

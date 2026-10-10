@@ -88,8 +88,7 @@ def add_plato_noise(
     if missing:
         raise KeyError(f"noise_ppm has no entry for bands: {sorted(missing)}")
     return {
-        band: value + rng.normal(0.0, noise_ppm[band] * 1e-6)
-        for band, value in photometry.items()
+        band: value + rng.normal(0.0, noise_ppm[band] * 1e-6) for band, value in photometry.items()
     }
 
 

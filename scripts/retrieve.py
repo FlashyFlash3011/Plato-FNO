@@ -72,7 +72,9 @@ def load_target(path: str, index: int, n_points: int, obs_wavelengths: np.ndarra
             f"Target has {target.shape[0]} points but the observation grid has {n_points}. "
             "Resample it, or set retrieval.instrument to match how it was binned."
         )
-    if file_wavelengths is not None and not np.allclose(file_wavelengths, obs_wavelengths, atol=1e-4):
+    if file_wavelengths is not None and not np.allclose(
+        file_wavelengths, obs_wavelengths, atol=1e-4
+    ):
         raise ValueError("Target wavelengths do not match the expected observation grid.")
     return target, sigma
 
