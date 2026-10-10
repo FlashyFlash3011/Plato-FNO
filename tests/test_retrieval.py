@@ -145,3 +145,10 @@ def test_obs_transform_and_grid_mismatch(surrogate, normalizer, observed):
     assert ll.shape == (1,)
     with pytest.raises(ValueError, match="obs_transform"):
         pairs.log_likelihood_batch(theta, observed, 1e-4)
+
+
+def test_initial_walkers_from_prior_are_valid_and_spread(retrieval):
+    p0 = retrieval.initial_walkers(32, np.random.default_rng(0))
+    assert p0.shape == (32, N_PARAMS)
+    assert np.isfinite(retrieval.log_prior(p0)).all()
+    assert (p0.std(axis=0) > 0).all()

@@ -155,6 +155,26 @@ class MCMCRetrieval:
     # MCMC run
     # ------------------------------------------------------------------
 
+    def initial_walkers(
+        self,
+        n_walkers: int,
+        rng: np.random.Generator,
+        initial_theta: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Starting positions, shape (n_walkers, N_PARAMS).
+
+        Without ``initial_theta`` the walkers are drawn from the prior, which
+        avoids starting every chain in the same spot. With it, they form a
+        small ball (1% of each prior width) around that point.
+        """
+        if initial_theta is None:
+            return np.stack(
+                [AtmosphericState.sample_prior(rng).to_vector() for _ in range(n_walkers)]
+            ).astype(np.float64)
+        width = (self._hi - self._lo) * 0.01
+        p0 = initial_theta[np.newaxis, :] + rng.normal(0, 1, (n_walkers, N_PARAMS)) * width
+        return np.clip(p0, self._lo, self._hi)
+
     def run(
         self,
         observed: np.ndarray,
@@ -165,8 +185,9 @@ class MCMCRetrieval:
         thin: int = 5,
         initial_theta: np.ndarray | None = None,
         progress: bool = True,
+        seed: int | None = None,
     ) -> tuple[np.ndarray, emcee.EnsembleSampler]:
-        """Run emcee ensemble sampler.
+        """Run the emcee ensemble sampler.
 
         Parameters
         ----------
@@ -175,7 +196,7 @@ class MCMCRetrieval:
         sigma : float or np.ndarray of shape (M,)
             Observational 1σ errors.
         n_walkers : int
-            Number of emcee walkers. Must be even and > 2 * N_PARAMS.
+            Number of walkers; must be at least 2 * N_PARAMS.
         n_steps : int
             Total MCMC steps (including burn-in).
         burn_in : int
@@ -183,30 +204,25 @@ class MCMCRetrieval:
         thin : int
             Thinning factor for posterior samples.
         initial_theta : np.ndarray, shape (N_PARAMS,), optional
-            Starting point for walkers. Defaults to prior centre.
+            Start walkers in a small ball here instead of across the prior.
         progress : bool
             Show tqdm progress bar.
+        seed : int, optional
+            Seed for walker initialisation and emcee's proposals.
 
         Returns
         -------
         flat_samples : np.ndarray, shape (n_effective, N_PARAMS)
-            Posterior samples after burn-in and thinning.
         sampler : emcee.EnsembleSampler
             Full sampler object for diagnostics.
         """
-        assert n_walkers >= 2 * N_PARAMS, (
-            f"n_walkers={n_walkers} must be >= 2*N_PARAMS={2*N_PARAMS}"
-        )
+        if n_walkers < 2 * N_PARAMS:
+            raise ValueError(f"n_walkers={n_walkers} must be >= 2*N_PARAMS={2 * N_PARAMS}")
+        if not 0 <= burn_in < n_steps:
+            raise ValueError(f"burn_in={burn_in} must be in [0, n_steps={n_steps})")
 
-        # Initialise walkers around the prior centre with small perturbations
-        if initial_theta is None:
-            bounds = list(AtmosphericState.PRIOR_BOUNDS.values())
-            initial_theta = np.array([(lo + hi) / 2.0 for lo, hi in bounds])
-
-        rng = np.random.default_rng(42)
-        bounds_arr = np.array(list(AtmosphericState.PRIOR_BOUNDS.values()))
-        width = (bounds_arr[:, 1] - bounds_arr[:, 0]) * 0.01
-        p0 = initial_theta[np.newaxis, :] + rng.normal(0, 1, (n_walkers, N_PARAMS)) * width[np.newaxis, :]
+        rng = np.random.default_rng(seed)
+        p0 = self.initial_walkers(n_walkers, rng, initial_theta)
 
         def log_prob(theta_batch: np.ndarray) -> np.ndarray:
             return self.log_posterior_vectorized(theta_batch, observed, sigma)
@@ -217,8 +233,9 @@ class MCMCRetrieval:
             log_prob_fn=log_prob,
             vectorize=True,
         )
-
+        sampler.random_state = np.random.RandomState(rng.integers(2**32)).get_state()
         sampler.run_mcmc(p0, n_steps, progress=progress)
 
         flat_samples = sampler.get_chain(discard=burn_in, thin=thin, flat=True)
         return flat_samples, sampler
+
