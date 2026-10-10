@@ -123,19 +123,26 @@ def main(cfg: DictConfig) -> None:
     rmse_norm = rmse(preds, targets).item()
     r2    = r2_score(preds, targets).item()
 
-    # Convert RMSE to physical ppm
-    rmse_ppm = rmse_norm * float(normalizer.spec_std.mean()) * 1e6
+    # RMSE in physical units (the normalised scale differs per wavelength)
+    preds_phys = normalizer.inverse_transform_spectra(preds.numpy())
+    targets_phys = normalizer.inverse_transform_spectra(targets.numpy())
+    rmse_per_wl_ppm = np.sqrt(((preds_phys - targets_phys) ** 2).mean(axis=(0, 1))) * 1e6
+    rmse_ppm = float(np.sqrt((rmse_per_wl_ppm**2).mean()))
 
     spectral_metrics = {
         "relative_l2":  rel_l2,
         "rmse_normalised": rmse_norm,
         "rmse_ppm":     rmse_ppm,
+        "rmse_ppm_worst_wavelength": float(rmse_per_wl_ppm.max()),
         "r2_score":     r2,
         "n_test_samples": len(test_ds),
     }
 
     log.info(f"  Relative L2:   {rel_l2:.4f}")
-    log.info(f"  RMSE:          {rmse_ppm:.2f} ppm")
+    log.info(
+        f"  RMSE:          {rmse_ppm:.2f} ppm "
+        f"(worst wavelength {rmse_per_wl_ppm.max():.2f} ppm)"
+    )
     log.info(f"  R² score:      {r2:.4f}")
 
     # ------------------------------------------------------------------
