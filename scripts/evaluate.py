@@ -35,7 +35,7 @@ from plato_fno.metrics.retrieval_metrics import (
     posterior_coverage,
     speedup_ratio,
 )
-from plato_fno.models.retrieval import MCMCRetrieval
+from plato_fno.models.retrieval import MCMCRetrieval, convergence_diagnostics
 from plato_fno.models.surrogate import load_surrogate
 from plato_fno.physics.atmosphere import AtmosphericState, PARAM_NAMES
 
@@ -177,38 +177,44 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     log.info(f"=== 3. Retrieval fidelity ({n_retrieval_targets} synthetic targets) ===")
 
-    retrieval = MCMCRetrieval(surrogate=model, normalizer=normalizer, device=device)
+    # Targets are petitRADTRANS spectra from the test split (never seen in
+    # training or calibration) plus Gaussian noise, so coverage reflects the
+    # surrogate's error as well as the sampler's.
+    model_sigma = None
+    state_path = ckpt_dir / "conformal_state.pt"
+    if cfg.retrieval.include_model_error and state_path.exists():
+        model_sigma = np.asarray(torch.load(state_path, weights_only=False)["model_sigma"])
+    elif cfg.retrieval.include_model_error:
+        log.warning(f"{state_path} missing; retrieving without the surrogate error term")
+    retrieval = MCMCRetrieval(model, normalizer, device=device, model_sigma=model_sigma)
 
     coverage_per_param: dict[str, list[bool]] = {name: [] for name in PARAM_NAMES}
-    bias_per_param:     dict[str, list[float]] = {name: [] for name in PARAM_NAMES}
+    bias_per_param: dict[str, list[float]] = {name: [] for name in PARAM_NAMES}
+    n_converged = 0
 
     rng = np.random.default_rng(cfg.seed + 100)
+    picks = rng.choice(len(test_ds), size=min(n_retrieval_targets, len(test_ds)), replace=False)
+    true_thetas = normalizer.inverse_transform_params(test_ds.inputs[picks].numpy())
+    true_spectra = normalizer.inverse_transform_spectra(test_ds.targets[picks].numpy())[:, 0, :]
 
-    for i in tqdm(range(n_retrieval_targets), desc="Retrieval fidelity"):
-        true_state = AtmosphericState.sample_prior(rng)
-        true_theta = true_state.to_vector()
+    for i in tqdm(range(len(picks)), desc="Retrieval fidelity"):
+        true_theta = true_thetas[i]
+        observed = true_spectra[i] + rng.normal(0, cfg.retrieval.sigma, true_spectra[i].shape)
 
-        # Generate synthetic observed spectrum via FNO (fast)
-        theta_norm = normalizer.transform_params(true_theta[np.newaxis, :])
-        theta_t = torch.tensor(theta_norm, dtype=torch.float32, device=device)
-        with torch.no_grad():
-            pred_norm = model(theta_t)
-        pred_phys = normalizer.inverse_transform_spectra(pred_norm.cpu().numpy())[0, 0, :]
-        observed  = pred_phys + rng.normal(0, cfg.retrieval.sigma, pred_phys.shape)
-
-        flat_samples, _ = retrieval.run(
+        flat_samples, sampler = retrieval.run(
             observed=observed,
             sigma=cfg.retrieval.sigma,
             n_walkers=cfg.retrieval.n_walkers,
-            n_steps=min(cfg.retrieval.n_steps, 1000),  # shorter for eval
-            burn_in=min(cfg.retrieval.burn_in, 200),
+            n_steps=cfg.evaluate.mcmc_n_steps,
+            burn_in=cfg.evaluate.mcmc_burn_in,
             thin=cfg.retrieval.thin,
             progress=False,
+            seed=cfg.seed + i,
         )
+        n_converged += convergence_diagnostics(sampler, cfg.evaluate.mcmc_burn_in)["converged"]
 
         cov = posterior_coverage(flat_samples, true_theta, credible_level=0.68)
         bia = parameter_bias(flat_samples, true_theta)
-
         for name in PARAM_NAMES:
             coverage_per_param[name].append(cov[name])
             bias_per_param[name].append(bia[name])
@@ -217,7 +223,12 @@ def main(cfg: DictConfig) -> None:
     mean_bias     = {name: float(np.mean(v)) for name, v in bias_per_param.items()}
     overall_coverage = float(np.mean(list(mean_coverage.values())))
 
-    log.info(f"  Overall 68% CI coverage: {overall_coverage:.3f}  (target ≥ 0.68)")
+    log.info(f"  Overall 68% CI coverage: {overall_coverage:.3f}  (ideal ≈ 0.68)")
+    log.info(f"  Converged chains: {n_converged}/{len(picks)}")
+    if n_converged < len(picks):
+        log.warning(
+            "Some chains did not converge; raise evaluate.mcmc_n_steps before trusting coverage"
+        )
     log.info("  Per-parameter coverage:")
     for name in PARAM_NAMES:
         log.info(f"    {name:15s}: coverage={mean_coverage[name]:.2f}  bias={mean_bias[name]:+.4f}")
@@ -229,7 +240,8 @@ def main(cfg: DictConfig) -> None:
         "spectral_accuracy": spectral_metrics,
         "speedup":           speedup,
         "retrieval_fidelity": {
-            "n_targets":       n_retrieval_targets,
+            "n_targets":       len(picks),
+            "n_converged":     n_converged,
             "overall_coverage_68": overall_coverage,
             "per_param_coverage":  mean_coverage,
             "per_param_mean_bias": mean_bias,

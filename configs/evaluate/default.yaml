@@ -1,6 +1,11 @@
-# Number of synthetic planets to retrieve when checking posterior coverage
+# Number of test-split planets (real pRT spectra + noise) retrieved to check
+# posterior coverage
 n_retrieval_targets: 20
 # Used for the speed-up numbers only when petitRADTRANS (with its opacity
 # data) is not available to time directly. Reported as "assumed" in that case.
 prt_seconds_per_call: 0.5
 n_prt_timing_calls: 5
+# MCMC length per coverage retrieval (shorter than a full retrieve.py run;
+# chains that don't pass convergence_diagnostics are counted and reported)
+mcmc_n_steps: 3000
+mcmc_burn_in: 1000
