@@ -11,8 +11,8 @@ class SpectrumNormalizer:
     """Per-channel z-score normalisation for both parameters and spectra.
 
     Fits on training data only; applied consistently to val/cal/test splits.
-    Stats are persisted to .npz so the retrieval script can reload them
-    without re-fitting.
+    Training stores the stats inside the model checkpoint (see
+    ``save_surrogate``), so a model is never paired with the wrong stats.
 
     Attributes
     ----------
@@ -87,28 +87,36 @@ class SpectrumNormalizer:
     # Persistence
     # ------------------------------------------------------------------
 
-    def save(self, path: Path) -> None:
-        """Write normalisation stats to .npz file."""
+    def state_dict(self) -> dict[str, np.ndarray]:
+        """Return the fitted statistics (stored inside model checkpoints)."""
         self._check_fitted()
-        np.savez(
-            path,
-            param_mean=self.param_mean,
-            param_std=self.param_std,
-            spec_mean=self.spec_mean,
-            spec_std=self.spec_std,
-        )
+        return {
+            "param_mean": self.param_mean,
+            "param_std": self.param_std,
+            "spec_mean": self.spec_mean,
+            "spec_std": self.spec_std,
+        }
 
     @classmethod
-    def load(cls, path: Path) -> "SpectrumNormalizer":
-        """Reconstruct normaliser from saved .npz file."""
-        data = np.load(path)
+    def from_state_dict(cls, state: dict[str, np.ndarray]) -> SpectrumNormalizer:
+        """Rebuild a fitted normaliser from :meth:`state_dict` output."""
         obj = cls()
-        obj.param_mean = data["param_mean"]
-        obj.param_std  = data["param_std"]
-        obj.spec_mean  = data["spec_mean"]
-        obj.spec_std   = data["spec_std"]
-        obj._fitted    = True
+        obj.param_mean = np.asarray(state["param_mean"], dtype=np.float32)
+        obj.param_std = np.asarray(state["param_std"], dtype=np.float32)
+        obj.spec_mean = np.asarray(state["spec_mean"], dtype=np.float32)
+        obj.spec_std = np.asarray(state["spec_std"], dtype=np.float32)
+        obj._fitted = True
         return obj
+
+    def save(self, path: Path) -> None:
+        """Write normalisation stats to .npz file."""
+        np.savez(path, **self.state_dict())
+
+    @classmethod
+    def load(cls, path: Path) -> SpectrumNormalizer:
+        """Reconstruct normaliser from saved .npz file."""
+        with np.load(path) as data:
+            return cls.from_state_dict(dict(data))
 
     # ------------------------------------------------------------------
     # Internals
