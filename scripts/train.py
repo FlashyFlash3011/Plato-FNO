@@ -130,7 +130,10 @@ def main(cfg: DictConfig) -> None:
     scaler = GradScaler(device=device.type) if (use_amp and amp_dtype == torch.float16) else None
     log.info(f"Mixed precision: {amp_dtype_str if use_amp else 'disabled'}")
 
-    run_info = {"config": OmegaConf.to_container(cfg, resolve=True)}
+    run_info = {
+        "config": OmegaConf.to_container(cfg, resolve=True),
+        "wavelengths": splits["train"].wavelengths,
+    }
     best_val = float("inf")
 
     # ------------------------------------------------------------------
