@@ -1,14 +1,12 @@
 """Tests for petitrt_driver (mock-based, no pRT install needed)."""
 
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import h5py
 import numpy as np
 import pytest
 
-from plato_fno.physics.atmosphere import AtmosphericState, N_PARAMS
+from plato_fno.physics.atmosphere import N_PARAMS, AtmosphericState
 
 N_WAVELENGTHS = 30
 N_SAMPLES     = 8

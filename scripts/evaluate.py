@@ -20,13 +20,10 @@ from pathlib import Path
 import hydra
 import numpy as np
 import torch
-from loguru import logger
-from omegaconf import DictConfig, OmegaConf
-from tqdm import tqdm
-
-from solaris.metrics.metrics import relative_l2_error, rmse, r2_score
-from plato_fno.utils import resolve_device, setup_run_logging
+from omegaconf import DictConfig
 from solaris.datapipes.dataset import build_dataloader
+from solaris.metrics.metrics import r2_score, relative_l2_error, rmse
+from tqdm import tqdm
 
 from plato_fno.data.dataset import make_splits
 from plato_fno.metrics.retrieval_metrics import (
@@ -37,7 +34,8 @@ from plato_fno.metrics.retrieval_metrics import (
 )
 from plato_fno.models.retrieval import MCMCRetrieval, convergence_diagnostics
 from plato_fno.models.surrogate import load_surrogate
-from plato_fno.physics.atmosphere import AtmosphericState, PARAM_NAMES
+from plato_fno.physics.atmosphere import PARAM_NAMES, AtmosphericState
+from plato_fno.utils import resolve_device, setup_run_logging
 
 
 def _time_prt(cfg: DictConfig, log) -> tuple[float, str]:

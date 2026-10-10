@@ -37,7 +37,7 @@ class SpectrumNormalizer:
         self,
         params: np.ndarray,   # (N, N_PARAMS)
         spectra: np.ndarray,  # (N, 1, L)
-    ) -> "SpectrumNormalizer":
+    ) -> SpectrumNormalizer:
         """Compute and store normalisation statistics from training data.
 
         NaN values in spectra (failed pRT calls) are excluded from stats.

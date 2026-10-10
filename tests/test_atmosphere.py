@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from plato_fno.physics.atmosphere import (
-    AtmosphericState,
     N_PARAMS,
+    AtmosphericState,
     guillot_temperature_profile,
 )
 

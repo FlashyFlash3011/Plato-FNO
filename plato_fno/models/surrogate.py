@@ -22,7 +22,6 @@ from typing import Any
 
 import torch
 import torch.nn as nn
-
 from solaris.models.fno import FNO
 from solaris.nn.spectral import SpectralConv1d
 

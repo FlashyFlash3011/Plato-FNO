@@ -1,11 +1,11 @@
 """Tests for AtmosphereSurrogate."""
 
-import torch
 import pytest
+import torch
+from solaris.nn.spectral import SpectralConv1d
 
 from plato_fno.models.surrogate import AtmosphereSurrogate, apply_overtone_spectral_init
 from plato_fno.physics.atmosphere import N_PARAMS
-from solaris.nn.spectral import SpectralConv1d
 
 N_WAVELENGTHS = 64  # small for fast tests
 N_ENC         = 16
