@@ -112,8 +112,10 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     log.info("=== 2. Inference speedup ===")
 
-    t_fno_single = benchmark_inference_time(model, batch_size=1,  device=str(device))
-    t_fno_batch  = benchmark_inference_time(model, batch_size=64, device=str(device))
+    t_fno_single = benchmark_inference_time(model, batch_size=1, device=device)
+    t_fno_batch = benchmark_inference_time(
+        model, batch_size=cfg.retrieval.n_walkers, device=device
+    )
 
     # petitRADTRANS baseline — use a reasonable estimate if pRT not installed
     try:
@@ -133,16 +135,20 @@ def main(cfg: DictConfig) -> None:
     except Exception:
         t_prt = 0.5
 
-    speedup = speedup_ratio(t_prt, t_fno_single, n_walkers=64)
+    n_walkers = cfg.retrieval.n_walkers
+    speedup = speedup_ratio(t_prt, t_fno_single, t_fno_batch, n_walkers=n_walkers)
     speedup["t_fno_single_ms"] = t_fno_single * 1e3
-    speedup["t_fno_batch64_ms"] = t_fno_batch * 1e3
+    speedup["t_fno_batch_ms"] = t_fno_batch * 1e3
     speedup["t_prt_estimate_s"] = t_prt
 
-    log.info(f"  FNO single call:  {t_fno_single*1e3:.2f} ms")
-    log.info(f"  FNO batch=64:     {t_fno_batch*1e3:.2f} ms")
-    log.info(f"  pRT estimate:     {t_prt*1e3:.0f} ms")
+    log.info(f"  FNO single call:  {t_fno_single * 1e3:.2f} ms")
+    log.info(f"  FNO batch={n_walkers}:     {t_fno_batch * 1e3:.2f} ms")
+    log.info(f"  pRT estimate:     {t_prt * 1e3:.0f} ms")
     log.info(f"  Single speedup:   {speedup['single_call']:.0f}×")
-    log.info(f"  Batched speedup:  {speedup['batched_step']:.0f}× (per MCMC step, 64 walkers)")
+    log.info(
+        f"  Batched speedup:  {speedup['batched_step']:.0f}× "
+        f"(per MCMC step, {n_walkers} walkers)"
+    )
 
     # ------------------------------------------------------------------
     # 3. Retrieval fidelity on synthetic targets

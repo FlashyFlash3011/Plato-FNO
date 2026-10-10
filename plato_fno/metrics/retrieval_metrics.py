@@ -89,6 +89,7 @@ def posterior_width(
 def speedup_ratio(
     t_prt_single: float,
     t_fno_single: float,
+    t_fno_batch: float,
     n_walkers: int = 64,
 ) -> dict[str, float]:
     """Compute speedup metrics.
@@ -98,19 +99,22 @@ def speedup_ratio(
     t_prt_single : float
         Time for one petitRADTRANS forward call [seconds].
     t_fno_single : float
-        Time for one FNO forward call (batch=1) [seconds].
+        Time for one FNO forward call with batch size 1 [seconds].
+    t_fno_batch : float
+        Time for one FNO forward call with batch size ``n_walkers`` [seconds].
     n_walkers : int
-        Number of MCMC walkers used for the batched estimate.
+        Number of MCMC walkers evaluated per step.
 
     Returns
     -------
     dict with keys:
         single_call : speedup for a single evaluation
-        batched_step : speedup for one MCMC step (n_walkers evaluations)
+        batched_step : speedup for one MCMC step (n_walkers sequential pRT
+            calls vs one batched FNO call)
     """
     return {
-        "single_call":  t_prt_single / max(t_fno_single, 1e-9),
-        "batched_step": (n_walkers * t_prt_single) / max(t_fno_single, 1e-9),
+        "single_call": t_prt_single / max(t_fno_single, 1e-9),
+        "batched_step": (n_walkers * t_prt_single) / max(t_fno_batch, 1e-9),
     }
 
 
