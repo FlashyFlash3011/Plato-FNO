@@ -58,6 +58,22 @@ def test_deterministic_in_eval(surrogate):
     torch.testing.assert_close(out1, out2)
 
 
+def test_spectral_shape_depends_on_params(surrogate):
+    """The FNO must see theta: different inputs need different spectral *shapes*.
+
+    Regression test: with InstanceNorm inside the FNO blocks, the broadcast
+    parameter encoding was cancelled exactly and every input produced the same
+    shape (only the mean_predictor offset varied).
+    """
+    torch.manual_seed(0)
+    theta = torch.randn(2, N_PARAMS)
+    with torch.no_grad():
+        out = surrogate(theta)[:, 0, :]
+    shape = out - out.mean(dim=-1, keepdim=True)
+    diff = (shape[0] - shape[1]).abs().max() / shape.abs().max()
+    assert diff > 1e-3, f"spectral shape ignores theta (relative diff {diff:.2e})"
+
+
 def test_num_parameters_positive(surrogate):
     assert surrogate.num_parameters() > 0
 

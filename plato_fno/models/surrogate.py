@@ -89,6 +89,12 @@ class AtmosphereSurrogate(nn.Module):
     modes : int
         Number of Fourier modes retained. Must be < n_wavelengths // 2.
         Default 24.
+    norm : None or "instance"
+        Normalisation inside the FNO blocks. Must stay ``None``: the parameters
+        enter as a channel that is constant along wavelength, and after the
+        linear lift InstanceNorm subtracts exactly that constant, so the FNO
+        output would not depend on theta at all. ``"instance"`` exists only to
+        load checkpoints trained before this was fixed.
     """
 
     def __init__(
@@ -98,6 +104,7 @@ class AtmosphereSurrogate(nn.Module):
         hidden_channels: int = 128,
         n_layers: int = 6,
         modes: int = 24,
+        norm: str | None = None,
     ) -> None:
         super().__init__()
         self.n_wavelengths = n_wavelengths
@@ -106,6 +113,7 @@ class AtmosphereSurrogate(nn.Module):
         self._hidden_channels = hidden_channels
         self._n_layers = n_layers
         self._modes = modes
+        self._norm = norm
 
         assert modes < n_wavelengths // 2, (
             f"modes={modes} must be < n_wavelengths//2={n_wavelengths // 2}"
@@ -127,13 +135,12 @@ class AtmosphereSurrogate(nn.Module):
             n_layers=n_layers,
             modes=modes,
             dim=1,
+            norm=norm,
         )
 
-        # Per-sample mean predictor: bypasses InstanceNorm inside FNO blocks.
-        # InstanceNorm1d strips the mean over the wavelength axis so the FNO
-        # cannot learn per-sample transit depth scale. This linear layer maps
-        # the encoded params directly to a scalar offset added to the FNO
-        # output, restoring the ability to predict different overall levels.
+        # Per-sample offset: a direct path from the encoded params to the
+        # overall transit depth level (set mostly by Rp/Rs), so the FNO can
+        # spend its capacity on the wavelength-dependent features.
         self.mean_predictor = nn.Linear(n_enc, 1)
 
         # Wavelength positional embedding in [0, 1]: (1, 1, L)
@@ -193,4 +200,5 @@ class AtmosphereSurrogate(nn.Module):
             "hidden_channels": self._hidden_channels,
             "n_layers":        self._n_layers,
             "modes":           self._modes,
+            "norm":            self._norm,
         }
