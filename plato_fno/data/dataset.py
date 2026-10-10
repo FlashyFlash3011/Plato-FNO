@@ -15,17 +15,19 @@ import torch
 from torch.utils.data import Dataset
 
 from plato_fno.data.normalizer import SpectrumNormalizer
-
-# Spectra deeper than this are treated as broken pRT output (e.g. a runaway
-# transit radius at very low gravity) and dropped, together with NaN spectra
-# from failed pRT calls.
-MAX_TRANSIT_DEPTH = 0.15
+from plato_fno.physics.atmosphere import MAX_TRANSIT_DEPTH
 
 SPLIT_NAMES = ("train", "val", "cal", "test")
 
 
 def valid_sample_mask(targets: np.ndarray) -> np.ndarray:
-    """Return a (N,) bool mask of usable spectra in a (N, 1, L) target array."""
+    """Return a (N,) bool mask of usable spectra in a (N, 1, L) target array.
+
+    Drops NaN spectra (failed pRT calls) and spectra deeper than
+    MAX_TRANSIT_DEPTH (e.g. a runaway transit radius at very low gravity).
+    The prior excludes geometrically too-deep planets, so this should only
+    remove the occasional extreme atmosphere.
+    """
     finite = np.isfinite(targets).all(axis=(1, 2))
     deepest = np.nan_to_num(targets, nan=np.inf).max(axis=(1, 2))
     return finite & (deepest < MAX_TRANSIT_DEPTH)

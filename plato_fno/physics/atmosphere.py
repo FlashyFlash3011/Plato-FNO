@@ -23,6 +23,15 @@ PARAM_NAMES: list[str] = [
 
 assert len(PARAM_NAMES) == N_PARAMS, "Update PARAM_NAMES if N_PARAMS changes"
 
+R_JUP_CM = 7.1492e9
+R_SUN_CM = 6.957e10
+
+# Upper limit on transit depth. Spectra deeper than this are dropped from the
+# training data (see plato_fno.data.dataset), so the prior excludes planets
+# whose bare disk is already this large relative to the star: the surrogate
+# has never seen them.
+MAX_TRANSIT_DEPTH = 0.15
+
 
 @dataclass
 class AtmosphericState:
@@ -76,32 +85,45 @@ class AtmosphericState:
     def to_vector(self) -> np.ndarray:
         """Return flat float32 array of shape (N_PARAMS,)."""
         return np.array(
-            [getattr(self, f.name) for f in fields(self) if f.name != "PRIOR_BOUNDS"],
+            [getattr(self, f.name) for f in fields(self)],
             dtype=np.float32,
         )
 
     @classmethod
-    def from_vector(cls, v: np.ndarray) -> "AtmosphericState":
+    def from_vector(cls, v: np.ndarray) -> AtmosphericState:
         """Construct from flat parameter vector of shape (N_PARAMS,)."""
-        field_names = [f.name for f in fields(cls) if f.name != "PRIOR_BOUNDS"]
+        field_names = [f.name for f in fields(cls)]
         return cls(**dict(zip(field_names, v.tolist())))
 
     @classmethod
-    def sample_prior(cls, rng: np.random.Generator) -> "AtmosphericState":
-        """Draw one sample uniformly from prior bounds."""
-        values = {
-            name: rng.uniform(lo, hi)
-            for name, (lo, hi) in cls.PRIOR_BOUNDS.items()
-        }
-        return cls(**values)
+    def sample_prior(cls, rng: np.random.Generator) -> AtmosphericState:
+        """Draw one sample uniformly from the prior (bounds + constraints)."""
+        while True:
+            values = {name: rng.uniform(lo, hi) for name, (lo, hi) in cls.PRIOR_BOUNDS.items()}
+            state = cls(**values)
+            if cls.satisfies_constraints(state.to_vector()):
+                return state
+
+    @staticmethod
+    def satisfies_constraints(theta: np.ndarray) -> np.ndarray | bool:
+        """Joint prior constraints beyond the per-parameter bounds.
+
+        ``theta`` is (N_PARAMS,) or (B, N_PARAMS) in physical units. Currently
+        one constraint: geometric transit depth (R_planet / R_star)^2 below
+        MAX_TRANSIT_DEPTH.
+        """
+        theta = np.asarray(theta)
+        r_planet = theta[..., _R_PLANET] * R_JUP_CM
+        r_star = theta[..., _R_STAR] * R_SUN_CM
+        return r_planet**2 < MAX_TRANSIT_DEPTH * r_star**2  # no division: R_star may be 0
 
     def in_prior(self) -> bool:
-        """Return True if all parameters are within prior bounds."""
+        """Return True if the state has non-zero prior probability."""
         for name, (lo, hi) in self.PRIOR_BOUNDS.items():
             val = getattr(self, name)
             if not (lo <= val <= hi):
                 return False
-        return True
+        return bool(self.satisfies_constraints(self.to_vector()))
 
 
 def guillot_temperature_profile(
@@ -148,3 +170,13 @@ def guillot_temperature_profile(
         * (2.0 / 3.0 + 1.0 / (gamma * np.sqrt(3.0)) + (gamma / np.sqrt(3.0) - 1.0 / (gamma * np.sqrt(3.0))) * np.exp(-gamma * tau * np.sqrt(3.0)))
     )
     return T4**0.25
+
+
+# The vector layout, the dataclass fields and PRIOR_BOUNDS must all agree:
+# MCMCRetrieval.log_prior indexes bounds by position.
+assert [f.name for f in fields(AtmosphericState)] == PARAM_NAMES == list(
+    AtmosphericState.PRIOR_BOUNDS
+), "PARAM_NAMES, AtmosphericState fields and PRIOR_BOUNDS are out of order"
+
+_R_PLANET = PARAM_NAMES.index("R_planet")
+_R_STAR = PARAM_NAMES.index("R_star")

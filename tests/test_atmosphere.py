@@ -66,3 +66,12 @@ def test_guillot_profile_physical_range():
     # Should be between ~50 K and ~5000 K for physical inputs
     assert T.min() > 50.0
     assert T.max() < 10000.0
+
+
+def test_sample_prior_respects_transit_depth_constraint():
+    from plato_fno.physics.atmosphere import MAX_TRANSIT_DEPTH, R_JUP_CM, R_SUN_CM
+
+    rng = np.random.default_rng(1)
+    for _ in range(500):
+        s = AtmosphericState.sample_prior(rng)
+        assert (s.R_planet * R_JUP_CM / (s.R_star * R_SUN_CM)) ** 2 < MAX_TRANSIT_DEPTH
