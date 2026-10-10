@@ -219,6 +219,11 @@ def compute_spectrum(
 # Dataset generation
 # ---------------------------------------------------------------------------
 
+# Abort when more than this fraction of the first samples fail: a systematic
+# problem would otherwise burn hours producing an all-NaN file.
+_FAIL_FAST_MIN_SAMPLES = 50
+_FAIL_FAST_FRACTION = 0.5
+
 
 def generate_dataset_hdf5(
     output_path: Path,
@@ -315,11 +320,18 @@ def generate_dataset_hdf5(
 
             for i, spectrum in enumerate(tqdm(results, total=n_samples, desc="Generating spectra")):
                 if spectrum is None:
-                    ds_target[i, 0, :] = np.full(n_wavelengths, float("nan"), dtype=np.float32)
-                    failed += 1
+                    failed += 1  # row keeps its NaN fill value
                 else:
                     ds_target[i, 0, :] = spectrum
                     written += 1
+
+                n_done = i + 1
+                if n_done >= _FAIL_FAST_MIN_SAMPLES and failed / n_done > _FAIL_FAST_FRACTION:
+                    raise RuntimeError(
+                        f"{failed}/{n_done} petitRADTRANS calls failed; stopping instead of "
+                        "writing a mostly-NaN dataset. See the worker warnings above "
+                        "(missing opacity data is the usual cause)."
+                    )
 
                 if (i + 1) % chunk == 0:
                     f.flush()

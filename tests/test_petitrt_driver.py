@@ -169,3 +169,23 @@ def test_compute_spectrum_inputs_to_prt():
     np.testing.assert_allclose(kwargs["temperatures"], expected_T)
     assert out.shape == (N_WAVELENGTHS,)
     np.testing.assert_allclose(out, (7e9 / (state.R_star * 6.957e10)) ** 2, rtol=1e-6)
+
+
+def test_generation_stops_when_most_calls_fail(tmp_path):
+    from plato_fno.physics import petitrt_driver
+
+    with patch.object(petitrt_driver.mp, "get_context") as mock_ctx:
+        mock_pool = MagicMock()
+        mock_pool.__enter__ = lambda s: s
+        mock_pool.__exit__ = MagicMock(return_value=False)
+        mock_pool.imap.return_value = iter([None] * 200)
+        mock_ctx.return_value.Pool.return_value = mock_pool
+
+        with pytest.raises(RuntimeError, match="failed"):
+            petitrt_driver.generate_dataset_hdf5(
+                output_path=tmp_path / "bad.h5",
+                n_samples=200,
+                wavelength_range=(0.3, 5.0),
+                n_wavelengths=N_WAVELENGTHS,
+                n_workers=1,
+            )
