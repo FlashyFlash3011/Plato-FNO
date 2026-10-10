@@ -119,3 +119,29 @@ def test_log_prior_rejects_planet_too_large_for_star(retrieval):
     theta[PARAM_NAMES.index("R_planet")] = 2.0  # R_jup
     theta[PARAM_NAMES.index("R_star")] = 0.5  # R_sun → depth ≈ 0.17
     assert retrieval.log_prior(theta) == -np.inf
+
+
+def test_per_point_sigma_matches_scalar(retrieval, observed):
+    theta = np.stack([AtmosphericState.sample_prior(np.random.default_rng(3)).to_vector()])
+    a = retrieval.log_likelihood_batch(theta, observed, sigma=1e-4)
+    b = retrieval.log_likelihood_batch(theta, observed, sigma=np.full(N_WAVELENGTHS, 1e-4))
+    np.testing.assert_allclose(a, b)
+
+
+def test_model_sigma_widens_likelihood(surrogate, normalizer, observed):
+    theta = np.stack([AtmosphericState.sample_prior(np.random.default_rng(3)).to_vector()])
+    plain = MCMCRetrieval(surrogate, normalizer)
+    widened = MCMCRetrieval(surrogate, normalizer, model_sigma=np.full(N_WAVELENGTHS, 1e-3))
+    # observed is far from this random model's prediction, so extra variance helps
+    assert widened.log_likelihood_batch(theta, observed, 1e-5) > plain.log_likelihood_batch(
+        theta, observed, 1e-5
+    )
+
+
+def test_obs_transform_and_grid_mismatch(surrogate, normalizer, observed):
+    theta = np.stack([AtmosphericState.sample_prior(np.random.default_rng(3)).to_vector()])
+    pairs = MCMCRetrieval(surrogate, normalizer, obs_transform=lambda p: p.reshape(len(p), -1, 2).mean(-1))
+    ll = pairs.log_likelihood_batch(theta, observed[: N_WAVELENGTHS // 2], 1e-4)
+    assert ll.shape == (1,)
+    with pytest.raises(ValueError, match="obs_transform"):
+        pairs.log_likelihood_batch(theta, observed, 1e-4)

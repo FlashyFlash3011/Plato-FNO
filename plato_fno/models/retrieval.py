@@ -1,24 +1,34 @@
-"""Bayesian atmospheric retrieval using FNO surrogate inside emcee.
+"""Bayesian atmospheric retrieval using the FNO surrogate inside emcee.
 
-The key performance gain comes from emcee's vectorize=True mode:
-all walkers in a step are batched into a single GPU forward call (~5ms),
-versus sequential petitRADTRANS calls (~0.5s each).
+The performance gain comes from emcee's ``vectorize=True`` mode: all walkers
+in a step are batched into a single forward call of the surrogate, instead of
+one petitRADTRANS call per walker. Run ``scripts/evaluate.py`` for measured
+timings.
 
-Speedup estimate:
-    Sequential pRT: 64 walkers × 5000 steps × 0.5s = 44 hours
-    FNO batched:    5000 steps × ~5ms/batch       = ~25 seconds
+Likelihood
+----------
+Gaussian, independent per spectral point::
+
+    log L = -0.5 * Σ [ (d - m)^2 / s^2 + log(2π s^2) ],   s^2 = σ_obs^2 + σ_model^2
+
+``σ_obs`` is the observational error (scalar or per point). ``σ_model`` is
+optional: the surrogate's own per-wavelength RMSE, measured on held-out data
+by ``scripts/calibrate.py``. Adding it in quadrature stops the posterior from
+being over-confident where the surrogate is less accurate than the data.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+from collections.abc import Callable
 
 import emcee
 import numpy as np
 import torch
 
 from plato_fno.data.normalizer import SpectrumNormalizer
-from plato_fno.physics.atmosphere import AtmosphericState, N_PARAMS
+from plato_fno.physics.atmosphere import N_PARAMS, AtmosphericState
+
+ObsTransform = Callable[[np.ndarray], np.ndarray]
 
 
 class MCMCRetrieval:
@@ -27,27 +37,33 @@ class MCMCRetrieval:
     Parameters
     ----------
     surrogate : nn.Module
-        Trained AtmosphereSurrogate in eval mode.
+        Trained AtmosphereSurrogate.
     normalizer : SpectrumNormalizer
-        Fitted normaliser — used to normalise input params and
-        de-normalise predicted spectra for likelihood computation.
-    conformal : ConformalNeuralOperator, optional
-        If provided, q_hat is used as an adaptive noise floor per step.
+        The normaliser stored with the surrogate's checkpoint.
     device : str or torch.device
-        Device for FNO inference. Should be "cuda" for ROCm.
+        Device for surrogate inference.
+    obs_transform : callable, optional
+        Maps predicted spectra (B, L) on the native grid to the observation
+        grid (B, M), e.g. ``make_bin_transform`` for a JWST instrument.
+        Defaults to identity (observation on the native grid).
+    model_sigma : np.ndarray, optional
+        Surrogate error per observed point, shape (M,), in transit-depth units,
+        added in quadrature to the observational error.
     """
 
     def __init__(
         self,
         surrogate: torch.nn.Module,
         normalizer: SpectrumNormalizer,
-        conformal=None,
         device: str | torch.device = "cpu",
+        obs_transform: ObsTransform | None = None,
+        model_sigma: np.ndarray | None = None,
     ) -> None:
-        self.surrogate  = surrogate
+        self.surrogate = surrogate
         self.normalizer = normalizer
-        self.conformal  = conformal
-        self.device     = torch.device(device)
+        self.device = torch.device(device)
+        self.obs_transform = obs_transform
+        self.model_sigma = None if model_sigma is None else np.asarray(model_sigma, np.float64)
 
         self.surrogate.to(self.device)
         self.surrogate.eval()
@@ -75,59 +91,57 @@ class MCMCRetrieval:
     # Likelihood (vectorised for emcee)
     # ------------------------------------------------------------------
 
+    def predict_observed(self, theta_batch: np.ndarray) -> np.ndarray:
+        """Surrogate spectra for (B, N_PARAMS) physical parameters, on the observation grid."""
+        theta_norm = self.normalizer.transform_params(theta_batch)
+        theta_t = torch.as_tensor(theta_norm, dtype=torch.float32, device=self.device)
+        with torch.no_grad():
+            pred_norm = self.surrogate(theta_t).cpu().numpy()  # (B, 1, L)
+        pred = self.normalizer.inverse_transform_spectra(pred_norm)[:, 0, :]  # (B, L)
+        if self.obs_transform is not None:
+            pred = self.obs_transform(pred)
+        return pred.astype(np.float64)
+
     def log_likelihood_batch(
         self,
-        theta_batch: np.ndarray,    # (B, N_PARAMS) un-normalised
-        observed: np.ndarray,       # (n_wavelengths,) observed transit depth
-        sigma: float,
+        theta_batch: np.ndarray,
+        observed: np.ndarray,
+        sigma: float | np.ndarray,
     ) -> np.ndarray:
-        """Batched Gaussian log-likelihood for a set of parameter vectors.
+        """Batched Gaussian log-likelihood.
 
         Parameters
         ----------
         theta_batch : np.ndarray, shape (B, N_PARAMS)
-            Un-normalised parameter vectors (physical units).
-        observed : np.ndarray, shape (n_wavelengths,)
-            Observed transit depth spectrum.
-        sigma : float
-            Per-wavelength observational noise standard deviation.
+            Physical (un-normalised) parameter vectors.
+        observed : np.ndarray, shape (M,)
+            Observed transit depths on the observation grid.
+        sigma : float or np.ndarray of shape (M,)
+            Observational 1σ errors.
 
         Returns
         -------
         np.ndarray, shape (B,)
-            Log-likelihood values.
         """
-        # Normalise parameters
-        theta_norm = self.normalizer.transform_params(theta_batch)  # (B, N_PARAMS)
-        theta_t = torch.tensor(theta_norm, dtype=torch.float32, device=self.device)
+        observed = np.asarray(observed, dtype=np.float64)
+        var = np.broadcast_to(np.asarray(sigma, dtype=np.float64) ** 2, observed.shape)
+        if self.model_sigma is not None:
+            var = var + self.model_sigma**2
 
-        with torch.no_grad():
-            pred_norm = self.surrogate(theta_t)  # (B, 1, L)
-
-        pred_norm_np = pred_norm.cpu().numpy()   # (B, 1, L)
-        pred_phys = self.normalizer.inverse_transform_spectra(pred_norm_np)  # (B, 1, L)
-        pred_phys = pred_phys[:, 0, :]           # (B, L)
-
-        # Determine effective sigma — optionally inflate by conformal q_hat
-        if self.conformal is not None and self.conformal.is_calibrated:
-            q_hat_phys = float(self.conformal._q_hat) * self.normalizer.spec_std.mean()
-            eff_sigma = max(sigma, float(q_hat_phys))
-        else:
-            eff_sigma = sigma
-
-        # Gaussian log-likelihood: -0.5 * sum((obs - pred)^2 / sigma^2)
-        n_wl = observed.shape[0]
-        resid = pred_phys - observed[np.newaxis, :]  # (B, L)
-        log_liks = -0.5 * np.sum(resid**2, axis=1) / (eff_sigma**2)
-        log_liks -= 0.5 * n_wl * np.log(2.0 * np.pi * eff_sigma**2)
-
-        return log_liks  # (B,)
+        pred = self.predict_observed(theta_batch)  # (B, M)
+        if pred.shape[1] != observed.shape[0]:
+            raise ValueError(
+                f"Prediction has {pred.shape[1]} points but the observation has "
+                f"{observed.shape[0]}; pass an obs_transform that maps between them."
+            )
+        resid = pred - observed[np.newaxis, :]
+        return -0.5 * (np.sum(resid**2 / var, axis=1) + np.sum(np.log(2.0 * np.pi * var)))
 
     def log_posterior_vectorized(
         self,
         theta_batch: np.ndarray,
         observed: np.ndarray,
-        sigma: float,
+        sigma: float | np.ndarray,
     ) -> np.ndarray:
         """Vectorised log-posterior for emcee's ``vectorize=True`` mode. Returns (B,)."""
         log_priors = self.log_prior(theta_batch)
@@ -144,7 +158,7 @@ class MCMCRetrieval:
     def run(
         self,
         observed: np.ndarray,
-        sigma: float = 50e-6,
+        sigma: float | np.ndarray = 50e-6,
         n_walkers: int = 64,
         n_steps: int = 5000,
         burn_in: int = 1000,
@@ -156,10 +170,10 @@ class MCMCRetrieval:
 
         Parameters
         ----------
-        observed : np.ndarray, shape (n_wavelengths,)
-            Observed transit depth spectrum.
-        sigma : float
-            Per-wavelength observational noise std dev.
+        observed : np.ndarray, shape (M,)
+            Observed transit depth spectrum (on the observation grid).
+        sigma : float or np.ndarray of shape (M,)
+            Observational 1σ errors.
         n_walkers : int
             Number of emcee walkers. Must be even and > 2 * N_PARAMS.
         n_steps : int
