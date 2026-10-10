@@ -155,13 +155,13 @@ class AtmosphereSurrogate(nn.Module):
         Tensor, shape (B, n_enc + 1, L)
             Broadcast-encoded parameters concatenated with wavelength embedding.
         """
-        enc = self.param_encoder(theta)               # (B, n_enc)
+        return self._fno_input(self.param_encoder(theta))
+
+    def _fno_input(self, enc: torch.Tensor) -> torch.Tensor:
+        """Broadcast (B, n_enc) along wavelength and append the wavelength embedding."""
         enc = enc.unsqueeze(-1).expand(-1, -1, self.n_wavelengths)  # (B, n_enc, L)
-
-        # Tile wavelength embedding to batch size
-        wl = self._wl_embed.expand(theta.shape[0], -1, -1)  # (B, 1, L)
-
-        return torch.cat([enc, wl], dim=1)              # (B, n_enc+1, L)
+        wl = self._wl_embed.expand(enc.shape[0], -1, -1)  # (B, 1, L)
+        return torch.cat([enc, wl], dim=1)  # (B, n_enc+1, L)
 
     def forward(self, theta: torch.Tensor) -> torch.Tensor:
         """Predict normalised transit depth spectrum.
@@ -176,11 +176,10 @@ class AtmosphereSurrogate(nn.Module):
         Tensor, shape (B, 1, L)
             Predicted normalised transit depth spectrum.
         """
-        x = self.encode_params(theta)                          # (B, n_enc+1, L)
-        fno_out = self.fno(x)                                  # (B, 1, L)
-        enc = self.param_encoder(theta)                        # (B, n_enc)
-        offset = self.mean_predictor(enc).unsqueeze(-1)        # (B, 1, 1)
-        return fno_out + offset                                # (B, 1, L)
+        enc = self.param_encoder(theta)  # (B, n_enc)
+        fno_out = self.fno(self._fno_input(enc))  # (B, 1, L)
+        offset = self.mean_predictor(enc).unsqueeze(-1)  # (B, 1, 1)
+        return fno_out + offset  # (B, 1, L)
 
     def num_parameters(self) -> int:
         """Total number of trainable parameters."""
