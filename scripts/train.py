@@ -26,7 +26,7 @@ from solaris.utils.seed import set_seed
 from solaris.utils.training import AutoCheckpoint, EarlyStopping, GradientClipper, WarmupCosineScheduler
 from solaris.datapipes.dataset import build_dataloader
 
-from plato_fno.data.dataset import make_splits, load_raw_arrays
+from plato_fno.data.dataset import load_raw_arrays, make_splits, valid_sample_mask
 from plato_fno.data.normalizer import SpectrumNormalizer
 from plato_fno.models.surrogate import AtmosphereSurrogate, apply_overtone_spectral_init
 
@@ -65,9 +65,7 @@ def main(cfg: DictConfig) -> None:
 
     with h5py.File(hdf5_path, "r") as f:
         targets = f["target"][:]
-    per_max = targets.max(axis=(1, 2))
-    valid_mask = np.isfinite(targets).all(axis=(1, 2)) & (per_max < 0.15)
-    all_valid = np.where(valid_mask)[0]
+    all_valid = np.where(valid_sample_mask(targets))[0]
 
     rng = np.random.default_rng(cfg.seed)
     rng.shuffle(all_valid)
