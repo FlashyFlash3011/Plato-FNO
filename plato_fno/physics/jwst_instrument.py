@@ -25,6 +25,8 @@ SNR scales with stellar V-band magnitude relative to a V=10 baseline:
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 
 # Instrument: (lambda_min, lambda_max, n_bins)
@@ -44,6 +46,41 @@ _SNR_V10: dict[str, float] = {
 }
 
 _ONE_PPM = 1e-6
+
+
+def _instrument(name: str) -> tuple[float, float, int]:
+    if name not in JWST_INSTRUMENTS:
+        raise ValueError(f"Unknown instrument '{name}'. Choose from: {list(JWST_INSTRUMENTS)}")
+    return JWST_INSTRUMENTS[name]
+
+
+def bin_centers(lam_min: float, lam_max: float, n_bins: int) -> np.ndarray:
+    """Centres [µm] of ``n_bins`` equal-width bins spanning [lam_min, lam_max]."""
+    edges = np.linspace(lam_min, lam_max, n_bins + 1)
+    return (0.5 * (edges[:-1] + edges[1:])).astype(np.float32)
+
+
+def binning_matrix(
+    wavelengths: np.ndarray,
+    lam_min: float,
+    lam_max: float,
+    n_bins: int,
+) -> np.ndarray:
+    """Matrix W of shape (n_bins, L) such that ``W @ spectrum`` gives bin averages.
+
+    Each row averages the native points inside the bin. A bin containing no
+    native point (narrower than the grid spacing) takes the nearest point.
+    """
+    edges = np.linspace(lam_min, lam_max, n_bins + 1)
+    centers = bin_centers(lam_min, lam_max, n_bins)
+    W = np.zeros((n_bins, len(wavelengths)), dtype=np.float64)
+    for i in range(n_bins):
+        mask = (wavelengths >= edges[i]) & (wavelengths < edges[i + 1])
+        if mask.any():
+            W[i, mask] = 1.0 / mask.sum()
+        else:
+            W[i, np.argmin(np.abs(wavelengths - centers[i]))] = 1.0
+    return W
 
 
 def bin_spectrum(
@@ -71,23 +108,9 @@ def bin_spectrum(
     binned      : np.ndarray, shape (n_bins,)  float32
     bin_centers : np.ndarray, shape (n_bins,)  float32
     """
-    if spectrum.ndim == 2:
-        spectrum = spectrum[0]
-
-    edges   = np.linspace(lam_min, lam_max, n_bins + 1)
-    centers = 0.5 * (edges[:-1] + edges[1:]).astype(np.float32)
-    binned  = np.empty(n_bins, dtype=np.float32)
-
-    for i in range(n_bins):
-        mask = (wavelengths >= edges[i]) & (wavelengths < edges[i + 1])
-        if mask.sum() > 0:
-            binned[i] = float(spectrum[mask].mean())
-        else:
-            # Nearest-neighbour fallback when bin is narrower than native grid
-            nearest  = int(np.argmin(np.abs(wavelengths - centers[i])))
-            binned[i] = float(spectrum[nearest])
-
-    return binned, centers
+    spectrum = np.asarray(spectrum).reshape(-1)
+    W = binning_matrix(wavelengths, lam_min, lam_max, n_bins)
+    return (W @ spectrum).astype(np.float32), bin_centers(lam_min, lam_max, n_bins)
 
 
 def simulate_jwst_observation(
@@ -124,13 +147,7 @@ def simulate_jwst_observation(
     bin_centers : np.ndarray, shape (n_bins,)  — bin wavelengths [µm]
     sigma       : np.ndarray, shape (n_bins,)  — per-bin 1σ noise [same units as depth]
     """
-    if instrument not in JWST_INSTRUMENTS:
-        raise ValueError(
-            f"Unknown instrument '{instrument}'. "
-            f"Choose from: {list(JWST_INSTRUMENTS)}"
-        )
-
-    lam_min, lam_max, n_bins = JWST_INSTRUMENTS[instrument]
+    lam_min, lam_max, n_bins = _instrument(instrument)
     binned, bin_centers = bin_spectrum(spectrum, wavelengths, lam_min, lam_max, n_bins)
 
     snr_base = snr_override if snr_override is not None else _SNR_V10[instrument]
@@ -150,12 +167,12 @@ def simulate_jwst_observation(
 def make_bin_transform(
     wavelengths: np.ndarray,
     instrument: str,
-):
+) -> Callable[[np.ndarray], np.ndarray]:
     """Return a callable that bins a batch of spectra to the instrument grid.
 
-    The returned function maps (B, L) → (B, n_bins), suitable for use as
-    ``obs_transform`` in MCMCRetrieval so the likelihood is computed in the
-    instrument's spectral space rather than the full 300-point FNO grid.
+    The returned function maps (B, L) → (B, n_bins) and is meant to be passed
+    as ``obs_transform`` to MCMCRetrieval, so the likelihood is computed in
+    the instrument's spectral space rather than on the 300-point FNO grid.
 
     Parameters
     ----------
@@ -164,15 +181,10 @@ def make_bin_transform(
     instrument : str
         One of JWST_INSTRUMENTS.
     """
-    lam_min, lam_max, n_bins = JWST_INSTRUMENTS[instrument]
+    lam_min, lam_max, n_bins = _instrument(instrument)
+    W_T = binning_matrix(wavelengths, lam_min, lam_max, n_bins).T  # (L, n_bins)
 
     def _transform(pred_batch: np.ndarray) -> np.ndarray:
-        B   = pred_batch.shape[0]
-        out = np.empty((B, n_bins), dtype=np.float32)
-        for i in range(B):
-            out[i], _ = bin_spectrum(
-                pred_batch[i], wavelengths, lam_min, lam_max, n_bins
-            )
-        return out
+        return np.asarray(pred_batch) @ W_T
 
     return _transform
