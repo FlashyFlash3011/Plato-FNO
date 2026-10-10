@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check plato_fno tests scripts
+      - run: ruff format --check plato_fno tests scripts
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Install Solaris
+        # plato-fno needs Solaris >= 0.2.0 (FNO `norm` argument), which is on the
+        # fix/audit-phase1 branch until it is merged into master.
+        run: pip install "solaris-rocm[datapipes] @ git+https://github.com/FlashyFlash3011/Solaris@fix/audit-phase1"
+      - name: Install plato-fno
+        run: pip install -e ".[dev]"
+      - name: Run tests
+        run: pytest -q
