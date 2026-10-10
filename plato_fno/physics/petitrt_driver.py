@@ -26,6 +26,11 @@ from tqdm import tqdm
 
 from plato_fno.physics.atmosphere import AtmosphericState, guillot_temperature_profile
 
+# Importing petitRADTRANS runs `from mpi4py import MPI` when mpi4py is installed,
+# which hangs forever under WSL2. This variable is pRT's own switch for skipping
+# that MPI setup; we parallelise with multiprocessing and never use MPI.
+os.environ.setdefault("pRT_emcee_mode", "True")
+
 # petitRADTRANS is optional at import time so tests can run without it
 try:
     from petitRADTRANS.radtrans import Radtrans  # type: ignore[import]
