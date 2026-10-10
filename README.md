@@ -34,44 +34,58 @@ described by 14 numbers:
 Each one becomes a transit depth spectrum with 300 points from 0.3 to 5.0 µm, and the pairs are
 saved to HDF5.
 
+Planets too large for their star (transit depth above 15%) are left out of both the prior and the
+training data, so the network is never asked about planets it hasn't seen.
+
 **2. Train the surrogate** (`train.py`). A small MLP turns the 14 numbers into a set of features.
 Those get spread along the wavelength axis, and the FNO shapes them into a spectrum. The FNO works
 on the whole curve at once: it keeps the 24 smoothest Fourier components and learns how to weight
 each one, which suits absorption bands well. One extra layer predicts the overall depth (mostly set
-by planet-to-star size), because the FNO's normalisation would otherwise strip that out. The data is
-split 80/10/10 into train, validation and calibration sets.
+by planet-to-star size) directly. The data is split 70/10/10/10 into train, validation,
+calibration and test sets; the test set is only ever used by `evaluate.py`. Each checkpoint
+stores the architecture, the normalisation statistics and the wavelength grid, so the later steps
+need nothing else.
 
-**3. Calibrate the error** (`calibrate.py`). The network is never perfect, so this step checks it
-on calibration data it hasn't seen. Conformal prediction then picks an error band (`q_hat`, reported
-in ppm) that contains the true spectrum at least 90% of the time.
+**3. Calibrate the error** (`calibrate.py`). The network is never perfect, so this step measures it
+on calibration data it hasn't seen. Conformal prediction picks an error band that contains the
+whole true spectrum at least 90% of the time (checked on the test set). It also saves the
+network's typical error at each wavelength, which the retrieval adds to the observational noise so
+the posterior isn't over-confident where the network is less accurate.
 
-**4. Retrieve** (`retrieve.py`). `emcee` runs 64 walkers through the 14-parameter space. On each
-step the network predicts spectra for all 64 guesses in one GPU batch, and each guess is scored
-against the data with a Gaussian likelihood. After the burn-in, wherever the walkers spent their
-time is your posterior. You get the samples, a corner plot and a median ± 1σ summary.
+**4. Retrieve** (`retrieve.py`). `emcee` runs 64 walkers through the 14-parameter space, starting
+from random draws of the prior. On each step the network predicts spectra for all 64 guesses in
+one GPU batch, and each guess is scored against the data with a Gaussian likelihood (per-point
+error bars if you have them). After the burn-in, wherever the walkers spent their time is your
+posterior. You get the samples, a corner plot, a median ± 1σ summary, and convergence diagnostics
+(autocorrelation time); the script warns when the chain is too short to trust.
 
-**5. Evaluate** (`evaluate.py`). This measures spectrum accuracy on held-out data, times the
-network, and runs 20 retrievals on fake planets where we know the right answer, to see whether the
-68% intervals really contain the truth about 68% of the time.
+**5. Evaluate** (`evaluate.py`). This measures spectrum accuracy on the test set, times the
+network, and runs 20 retrievals on test-set planets: real petitRADTRANS spectra plus noise, where
+we know the right answer. That shows whether the 68% intervals really contain the truth about 68%
+of the time, including the network's own error.
 
-`plato_fno/physics/` also has instrument models for building realistic test observations: JWST
-binning and noise (NIRISS SOSS, NIRSpec PRISM/G140M/G395M), plus broadband colour photometry in
-the style of PLATO.
+`plato_fno/physics/` also has instrument models for building test observations: JWST binning and
+noise (NIRISS SOSS, NIRSpec PRISM/G140M/G395M; `retrieval.instrument` retrieves on that grid), and
+band-averaged depths in PLATO's real passbands (the ~500–1000 nm white-light band of the normal
+cameras, and the blue and red filters of the two fast cameras).
 
 ## Setup
 
-Python 3.10–3.12 is required
+Python 3.10–3.12 is required.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 
 # Install PyTorch for your hardware first (CUDA, ROCm or CPU): https://pytorch.org/get-started/locally/
-pip install -e "/path/to/Solaris[datapipes,viz]"
+pip install -e "/path/to/Solaris[datapipes,viz]"   # Solaris >= 0.2, not on PyPI
 pip install -e ".[dev]"
 
-# Only needed if you want to generate data: petitRADTRANS v3 plus its opacity files
-pip install petitRADTRANS
+# Only needed to generate data: petitRADTRANS v3 plus its opacity files
+pip install -e ".[prt]"
 ```
+
+petitRADTRANS asks to download missing opacity files the first time they are needed (several GB),
+so run data generation interactively once.
 
 Run the tests with `pytest`. They mock petitRADTRANS, so you don't need it installed for them.
 
@@ -85,21 +99,26 @@ python scripts/train.py
 python scripts/calibrate.py
 python scripts/retrieve.py retrieval.synthetic_test=true          # fake planet, known answer
 python scripts/retrieve.py retrieval.target_spectrum=target.h5    # your own spectrum
-python scripts/evaluate.py
+python scripts/evaluate.py                                        # evaluate.time_prt=true to time pRT
 ```
 
-A target spectrum should be an HDF5 file with a `target` dataset of shape `(N, 1, 300)`, holding
-`(Rp/Rs)²` on the 0.3–5.0 µm grid. Set the noise with `retrieval.sigma` (the default is 50 ppm).
+A target spectrum is an HDF5 file with a `target` dataset of shape `(N, M)` or `(N, 1, M)`,
+holding `(Rp/Rs)²`. M is the 300-point 0.3–5.0 µm grid, or the bins of a JWST instrument when you
+set `retrieval.instrument` (e.g. `nirspec_prism`). An optional `sigma` dataset gives per-point
+1σ errors; otherwise `retrieval.sigma` (50 ppm) is used for every point. An optional `wavelengths`
+dataset is checked against the expected grid.
 
 ## Known gaps
 
-- Real data has to be resampled onto the 300-point grid first, and it gets a single noise value.
-  Per-bin JWST error bars aren't wired in yet, even though `make_bin_transform()` exists for that.
-- `retrieve.py` doesn't use the calibrated error band yet.
-- `evaluate.py` doesn't time petitRADTRANS. It assumes 0.5 s per call, so treat the speed-up number
-  as a rough estimate.
-- The evaluation reuses the calibration split, and its test retrievals use spectra made by the
-  network itself.
+- Real data must be on the native grid or binned exactly like one of the four JWST instrument
+  presets; arbitrary instrument grids aren't supported yet.
+- The JWST noise levels are illustrative placeholders, not instrument-team numbers; use the JWST
+  ETC or PandExo for a real target. Noise is white (no correlated systematics).
+- `evaluate.py` only times petitRADTRANS with `evaluate.time_prt=true` (needs its opacity data);
+  otherwise the speed-up assumes 0.5 s per call and says so.
+- `R_planet` and `R_star` are both free, but the spectrum mostly depends on their ratio, so their
+  posteriors are strongly correlated. Real retrievals usually fix the stellar radius.
+- PLATO photometry is modelled (top-hat bands) but not yet used in the retrieval.
 - The atmosphere model is deliberately simple: abundances are the same at every altitude, clouds
   are a single opaque layer, there's no haze and no chemistry.
 
