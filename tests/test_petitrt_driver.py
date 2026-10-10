@@ -104,3 +104,37 @@ def test_hdf5_input_values_are_physical(tmp_path):
         # T_int should be within [50, 800]
         assert params[:, 0].min() >= 50.0
         assert params[:, 0].max() <= 800.0
+
+
+def test_unwritten_rows_are_nan_after_crash(tmp_path):
+    """If generation dies part-way, unwritten spectra must read back as NaN, not 0."""
+    from plato_fno.physics import petitrt_driver
+
+    output_path = tmp_path / "crashed.h5"
+
+    def _crashing_results():
+        for _ in range(3):
+            yield _mock_spectrum(np.zeros(N_PARAMS))
+        raise KeyboardInterrupt  # simulate the job being killed
+
+    with patch.object(petitrt_driver.mp, "get_context") as mock_ctx:
+        mock_pool = MagicMock()
+        mock_pool.__enter__ = lambda s: s
+        mock_pool.__exit__ = MagicMock(return_value=False)
+        mock_pool.imap.return_value = _crashing_results()
+        mock_ctx.return_value.Pool.return_value = mock_pool
+
+        with pytest.raises(KeyboardInterrupt):
+            petitrt_driver.generate_dataset_hdf5(
+                output_path=output_path,
+                n_samples=N_SAMPLES,
+                wavelength_range=(0.3, 5.0),
+                n_wavelengths=N_WAVELENGTHS,
+                n_workers=1,
+                chunk_size=N_SAMPLES,
+            )
+
+    with h5py.File(output_path, "r") as f:
+        targets = f["target"][:]
+    assert np.isfinite(targets[:3]).all()
+    assert np.isnan(targets[3:]).all()

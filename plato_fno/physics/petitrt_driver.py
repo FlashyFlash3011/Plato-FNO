@@ -262,8 +262,18 @@ def generate_dataset_hdf5(
         f.attrs["wavelength_range"] = list(wavelength_range)
 
         chunk = min(chunk_size, n_samples)
-        ds_input  = f.create_dataset("input",  shape=(n_samples, N_PARAMS),            dtype="float32", chunks=(chunk, N_PARAMS))
-        ds_target = f.create_dataset("target", shape=(n_samples, 1, n_wavelengths),     dtype="float32", chunks=(chunk, 1, n_wavelengths))
+        ds_input = f.create_dataset(
+            "input", shape=(n_samples, N_PARAMS), dtype="float32", chunks=(chunk, N_PARAMS)
+        )
+        # NaN fill: if the run dies part-way, unwritten rows are filtered out as
+        # failures instead of being read back as valid all-zero spectra.
+        ds_target = f.create_dataset(
+            "target",
+            shape=(n_samples, 1, n_wavelengths),
+            dtype="float32",
+            chunks=(chunk, 1, n_wavelengths),
+            fillvalue=np.nan,
+        )
         _         = f.create_dataset("wavelengths", data=wavelengths)
 
         # Write parameter vectors immediately (always available even if spectrum fails)
