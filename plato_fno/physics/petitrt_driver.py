@@ -33,11 +33,14 @@ os.environ.setdefault("pRT_emcee_mode", "True")
 
 # petitRADTRANS is optional at import time so tests can run without it
 try:
+    from petitRADTRANS.chemistry.utils import compute_mean_molar_masses  # type: ignore[import]
     from petitRADTRANS.radtrans import Radtrans  # type: ignore[import]
+
     _PRT_AVAILABLE = True
 except ImportError:
     _PRT_AVAILABLE = False
     Radtrans = None  # type: ignore[assignment,misc]
+    compute_mean_molar_masses = None  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -182,8 +185,9 @@ def compute_spectrum(
     mass_fractions["H2"] = np.full(n_layers, h2_frac)
     mass_fractions["He"] = np.full(n_layers, he_frac)
 
-    # Mean molecular weight (approximate, mostly H2/He)
-    mean_molar_masses = np.full(n_layers, 2.33)
+    # Heavy species can reach 10% by mass each, so compute the mean molar mass
+    # from the actual mix instead of assuming solar H2/He (2.33).
+    mean_molar_masses = compute_mean_molar_masses(mass_fractions)
 
     R_planet_cm = state.R_planet * 7.1492e9   # R_jup → cm
     R_star_cm   = state.R_star   * 6.957e10   # R_sun → cm

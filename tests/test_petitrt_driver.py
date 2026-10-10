@@ -141,13 +141,14 @@ def test_unwritten_rows_are_nan_after_crash(tmp_path):
 
 
 def test_compute_spectrum_inputs_to_prt():
-    """compute_spectrum passes gravity-aware temperatures to pRT."""
+    """compute_spectrum passes gravity-aware temperatures and the true mean molar mass."""
     from plato_fno.physics import petitrt_driver
 
     if not petitrt_driver._PRT_AVAILABLE:
         pytest.skip("petitRADTRANS not installed")
 
     state = AtmosphericState.sample_prior(np.random.default_rng(0))
+    state.log_X_CO2 = -1.0  # 10% CO2 by mass → mean molar mass well above 2.33
     pressures = np.logspace(-6, 2, 20)
     wavelengths = np.linspace(0.3, 5.0, N_WAVELENGTHS)
 
@@ -158,6 +159,7 @@ def test_compute_spectrum_inputs_to_prt():
 
     kwargs = prt.calculate_transit_radii.call_args.kwargs
     assert kwargs["reference_gravity"] == pytest.approx(10**state.log_g)
+    assert kwargs["mean_molar_masses"].min() > 2.5
     expected_T = petitrt_driver.guillot_temperature_profile(
         pressures, state.T_int, state.T_eq, 10**state.kappa_IR, 10**state.gamma,
         gravity=10**state.log_g,
