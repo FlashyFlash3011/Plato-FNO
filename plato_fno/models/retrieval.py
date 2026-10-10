@@ -52,19 +52,24 @@ class MCMCRetrieval:
         self.surrogate.to(self.device)
         self.surrogate.eval()
 
+        bounds = np.array(list(AtmosphericState.PRIOR_BOUNDS.values()), dtype=np.float64)
+        self._lo, self._hi = bounds[:, 0], bounds[:, 1]
+
     # ------------------------------------------------------------------
     # Prior
     # ------------------------------------------------------------------
 
-    def log_prior(self, theta: np.ndarray) -> float:
-        """Uniform log-prior within AtmosphericState.PRIOR_BOUNDS.
+    def log_prior(self, theta: np.ndarray) -> np.ndarray | float:
+        """Uniform log-prior within ``AtmosphericState.PRIOR_BOUNDS``.
 
-        Returns 0.0 if theta is within bounds, -inf otherwise.
+        Accepts (N_PARAMS,) or (B, N_PARAMS); returns 0 inside the prior and
+        -inf outside (scalar or (B,) array accordingly).
         """
-        for i, (name, (lo, hi)) in enumerate(AtmosphericState.PRIOR_BOUNDS.items()):
-            if not (lo <= theta[i] <= hi):
-                return -np.inf
-        return 0.0
+        theta = np.asarray(theta)
+        inside = np.all((theta >= self._lo) & (theta <= self._hi), axis=-1)
+        inside &= AtmosphericState.satisfies_constraints(theta)
+        out = np.where(inside, 0.0, -np.inf)
+        return float(out) if out.ndim == 0 else out
 
     # ------------------------------------------------------------------
     # Likelihood (vectorised for emcee)
@@ -120,30 +125,17 @@ class MCMCRetrieval:
 
     def log_posterior_vectorized(
         self,
-        theta_batch: np.ndarray,  # (B, N_PARAMS)
+        theta_batch: np.ndarray,
         observed: np.ndarray,
         sigma: float,
     ) -> np.ndarray:
-        """Vectorised log-posterior for emcee's vectorize=True mode.
-
-        Returns shape (B,).
-        """
-        B = theta_batch.shape[0]
-
-        # Compute priors per walker (fast, CPU)
-        log_priors = np.array([self.log_prior(theta_batch[i]) for i in range(B)])
-
-        # Short-circuit: if all are -inf, skip GPU forward pass
-        valid_mask = np.isfinite(log_priors)
-        if not valid_mask.any():
-            return log_priors
-
-        log_liks = np.full(B, -np.inf)
-        log_liks[valid_mask] = self.log_likelihood_batch(
-            theta_batch[valid_mask], observed, sigma
-        )
-
-        return log_priors + log_liks  # (B,)
+        """Vectorised log-posterior for emcee's ``vectorize=True`` mode. Returns (B,)."""
+        log_priors = self.log_prior(theta_batch)
+        valid = np.isfinite(log_priors)
+        out = np.full(len(theta_batch), -np.inf)
+        if valid.any():
+            out[valid] = self.log_likelihood_batch(theta_batch[valid], observed, sigma)
+        return out
 
     # ------------------------------------------------------------------
     # MCMC run

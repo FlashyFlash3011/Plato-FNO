@@ -7,7 +7,7 @@ import torch
 from plato_fno.data.normalizer import SpectrumNormalizer
 from plato_fno.models.retrieval import MCMCRetrieval
 from plato_fno.models.surrogate import AtmosphereSurrogate
-from plato_fno.physics.atmosphere import AtmosphericState, N_PARAMS
+from plato_fno.physics.atmosphere import N_PARAMS, PARAM_NAMES, AtmosphericState
 
 N_WAVELENGTHS = 64
 N_ENC         = 16
@@ -102,3 +102,20 @@ def test_mcmc_runs_and_shape(retrieval, observed):
     assert flat_samples.ndim == 2
     assert flat_samples.shape[1] == N_PARAMS
     assert flat_samples.shape[0] > 0
+
+
+def test_log_prior_vectorised_matches_scalar(retrieval):
+    rng = np.random.default_rng(0)
+    batch = np.stack([AtmosphericState.sample_prior(rng).to_vector() for _ in range(5)])
+    batch[2, 0] = -9999.0
+    lp = retrieval.log_prior(batch)
+    assert lp.shape == (5,)
+    for i in range(5):
+        assert lp[i] == retrieval.log_prior(batch[i])
+
+
+def test_log_prior_rejects_planet_too_large_for_star(retrieval):
+    theta = AtmosphericState.sample_prior(np.random.default_rng(0)).to_vector()
+    theta[PARAM_NAMES.index("R_planet")] = 2.0  # R_jup
+    theta[PARAM_NAMES.index("R_star")] = 0.5  # R_sun → depth ≈ 0.17
+    assert retrieval.log_prior(theta) == -np.inf
