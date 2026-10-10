@@ -151,3 +151,34 @@ def test_overtone_init_preserves_weight_scale():
 
     # RMS should be within 50% — the init redistributes but doesn't explode
     assert abs(after_rms - before_rms) / (before_rms + 1e-9) < 0.5
+
+
+def test_save_load_surrogate_roundtrip(tmp_path, surrogate):
+    import numpy as np
+
+    from plato_fno.data.normalizer import SpectrumNormalizer
+    from plato_fno.models.surrogate import load_surrogate, save_surrogate
+
+    rng = np.random.default_rng(0)
+    norm = SpectrumNormalizer().fit(
+        rng.normal(size=(50, N_PARAMS)), rng.normal(size=(50, 1, N_WAVELENGTHS))
+    )
+    path = tmp_path / "model.pt"
+    save_surrogate(path, surrogate, norm, epoch=3)
+
+    model, norm2, ckpt = load_surrogate(path)
+    assert ckpt["epoch"] == 3
+    assert model.architecture_kwargs() == surrogate.architecture_kwargs()
+    np.testing.assert_allclose(norm2.spec_std, norm.spec_std)
+    theta = torch.randn(BATCH, N_PARAMS)
+    with torch.no_grad():
+        torch.testing.assert_close(model(theta), surrogate(theta))
+
+
+def test_load_surrogate_rejects_bare_state_dict(tmp_path, surrogate):
+    from plato_fno.models.surrogate import load_surrogate
+
+    path = tmp_path / "old.pt"
+    torch.save(surrogate.state_dict(), path)
+    with pytest.raises(ValueError, match="older version"):
+        load_surrogate(path)

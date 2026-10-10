@@ -17,7 +17,8 @@ atmospheric parameters to spectral features is highly non-linear.
 
 from __future__ import annotations
 
-import math
+from pathlib import Path
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -25,6 +26,7 @@ import torch.nn as nn
 from solaris.models.fno import FNO
 from solaris.nn.spectral import SpectralConv1d
 
+from plato_fno.data.normalizer import SpectrumNormalizer
 from plato_fno.physics.atmosphere import N_PARAMS
 
 
@@ -202,3 +204,49 @@ class AtmosphereSurrogate(nn.Module):
             "modes":           self._modes,
             "norm":            self._norm,
         }
+
+
+def save_surrogate(
+    path: str | Path,
+    model: AtmosphereSurrogate,
+    normalizer: SpectrumNormalizer,
+    **extra: Any,
+) -> None:
+    """Save weights together with everything needed to use them.
+
+    The checkpoint holds the architecture kwargs and the normaliser stats, so
+    :func:`load_surrogate` can rebuild the model without the training config.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "architecture": model.architecture_kwargs(),
+            "normalizer": normalizer.state_dict(),
+            **extra,
+        },
+        path,
+    )
+
+
+def load_surrogate(
+    path: str | Path,
+    device: str | torch.device = "cpu",
+) -> tuple[AtmosphereSurrogate, SpectrumNormalizer, dict[str, Any]]:
+    """Load a checkpoint written by :func:`save_surrogate`.
+
+    Returns the model (in eval mode, on ``device``), its normaliser, and the
+    full checkpoint dict for any extra metadata.
+    """
+    ckpt = torch.load(path, map_location=device, weights_only=False)
+    if not isinstance(ckpt, dict) or "architecture" not in ckpt or "normalizer" not in ckpt:
+        raise ValueError(
+            f"{path} was written by an older version of plato-fno and lacks the "
+            "architecture/normaliser metadata. Retrain with scripts/train.py."
+        )
+    model = AtmosphereSurrogate(**ckpt["architecture"])
+    model.load_state_dict(ckpt["model_state_dict"])
+    model.to(device).eval()
+    normalizer = SpectrumNormalizer.from_state_dict(ckpt["normalizer"])
+    return model, normalizer, ckpt
