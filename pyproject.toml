@@ -36,13 +36,6 @@ dev = [
     "ipykernel>=6.0.0",
 ]
 
-[project.scripts]
-plato-generate  = "scripts.generate_data:main"
-plato-train     = "scripts.train:main"
-plato-calibrate = "scripts.calibrate:main"
-plato-retrieve  = "scripts.retrieve:main"
-plato-evaluate  = "scripts.evaluate:main"
-
 [tool.hatch.build.targets.wheel]
 packages = ["plato_fno"]
 
