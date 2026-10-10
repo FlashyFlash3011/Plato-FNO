@@ -44,10 +44,47 @@ except ImportError:
 # Radtrans factory — one instance per worker process
 # ---------------------------------------------------------------------------
 
-_worker_prt: "Radtrans | None" = None
+_worker_prt: Radtrans | None = None
 _worker_pressures: np.ndarray | None = None
 _worker_wavelengths: np.ndarray | None = None
 _worker_sleep: float = 0.0  # seconds to sleep after each spectrum (throttle)
+
+
+def build_radtrans(
+    species: list[str],
+    wavelength_range: tuple[float, float],
+    n_wavelengths: int,
+    n_layers: int,
+) -> tuple[Radtrans, np.ndarray, np.ndarray]:
+    """Create a Radtrans object plus the pressure and output wavelength grids.
+
+    Returns
+    -------
+    prt : Radtrans
+    pressures : np.ndarray, shape (n_layers,)
+        Log-spaced 1e-6 → 1e2 bar, ascending as pRT v3 requires.
+    wavelengths : np.ndarray, shape (n_wavelengths,)
+        Uniform output grid in microns that spectra are interpolated onto.
+    """
+    if not _PRT_AVAILABLE:
+        raise RuntimeError("petitRADTRANS is not installed. Run: pip install petitRADTRANS")
+
+    pressures = np.logspace(-6, 2, n_layers)
+
+    # Slight margin so pRT's native grid fully covers the output grid
+    wl_lo = wavelength_range[0] * 0.98
+    wl_hi = wavelength_range[1] * 1.02
+
+    prt = Radtrans(
+        pressures=pressures,
+        wavelength_boundaries=np.array([wl_lo, wl_hi]),
+        line_species=species,
+        rayleigh_species=["H2", "He"],
+        gas_continuum_contributors=["H2-H2", "H2-He"],
+        line_opacity_mode="c-k",
+    )
+    wavelengths = np.linspace(wavelength_range[0], wavelength_range[1], n_wavelengths)
+    return prt, pressures, wavelengths
 
 
 def _init_worker(
@@ -60,30 +97,9 @@ def _init_worker(
     """Initialise Radtrans in each worker process (called once per worker)."""
     global _worker_prt, _worker_pressures, _worker_wavelengths, _worker_sleep
     _worker_sleep = sleep_seconds
-
-    if not _PRT_AVAILABLE:
-        raise RuntimeError("petitRADTRANS is not installed. Run: pip install petitRADTRANS")
-
-    # Log-spaced pressure grid from 1e-6 to 1e2 bar (top→surface)
-    # pRT v3 requires ASCENDING order
-    _worker_pressures = np.logspace(-6, 2, n_layers)  # bar, low→high
-
-    # pRT v3: pass pressures and wavelength_boundaries to constructor
-    # Add slight margin to wavelength range so pRT's native grid covers ours
-    wl_lo = wavelength_range[0] * 0.98
-    wl_hi = wavelength_range[1] * 1.02
-
-    _worker_prt = Radtrans(
-        pressures=_worker_pressures,
-        wavelength_boundaries=np.array([wl_lo, wl_hi]),
-        line_species=species,
-        rayleigh_species=["H2", "He"],
-        gas_continuum_contributors=["H2-H2", "H2-He"],
-        line_opacity_mode="c-k",
+    _worker_prt, _worker_pressures, _worker_wavelengths = build_radtrans(
+        species, wavelength_range, n_wavelengths, n_layers
     )
-
-    # Our uniform output wavelength grid (for interpolation)
-    _worker_wavelengths = np.linspace(wavelength_range[0], wavelength_range[1], n_wavelengths)
 
 
 def _compute_one(state_vec: np.ndarray) -> np.ndarray | None:
@@ -111,7 +127,7 @@ def _compute_one(state_vec: np.ndarray) -> np.ndarray | None:
 
 def compute_spectrum(
     state: AtmosphericState,
-    prt: "Radtrans",
+    prt: Radtrans,
     pressures: np.ndarray,
     wavelengths_micron: np.ndarray,
 ) -> np.ndarray:
