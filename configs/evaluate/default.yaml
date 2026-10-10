@@ -1,8 +1,11 @@
 # Number of test-split planets (real pRT spectra + noise) retrieved to check
 # posterior coverage
 n_retrieval_targets: 20
-# Used for the speed-up numbers only when petitRADTRANS (with its opacity
-# data) is not available to time directly. Reported as "assumed" in that case.
+# Time real petitRADTRANS calls for the speed-up numbers. Needs pRT and its
+# opacity data installed: with files missing, pRT prompts to download them and
+# a non-interactive run waits forever. When false, prt_seconds_per_call is used
+# and reported as "assumed".
+time_prt: false
 prt_seconds_per_call: 0.5
 n_prt_timing_calls: 5
 # MCMC length per coverage retrieval (shorter than a full retrieve.py run;

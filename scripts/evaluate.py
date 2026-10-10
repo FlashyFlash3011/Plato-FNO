@@ -45,6 +45,8 @@ def _time_prt(cfg: DictConfig, log) -> tuple[float, str]:
 
     Returns (seconds per call, "measured" or "assumed").
     """
+    if not cfg.evaluate.time_prt:
+        return float(cfg.evaluate.prt_seconds_per_call), "assumed"
     try:
         from plato_fno.physics.petitrt_driver import build_radtrans, compute_spectrum
 
