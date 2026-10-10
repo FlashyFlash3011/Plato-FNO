@@ -214,7 +214,7 @@ class MCMCRetrieval:
         -------
         flat_samples : np.ndarray, shape (n_effective, N_PARAMS)
         sampler : emcee.EnsembleSampler
-            Full sampler object for diagnostics.
+            Use :func:`convergence_diagnostics` on it before trusting the result.
         """
         if n_walkers < 2 * N_PARAMS:
             raise ValueError(f"n_walkers={n_walkers} must be >= 2*N_PARAMS={2 * N_PARAMS}")
@@ -239,3 +239,35 @@ class MCMCRetrieval:
         flat_samples = sampler.get_chain(discard=burn_in, thin=thin, flat=True)
         return flat_samples, sampler
 
+
+def convergence_diagnostics(
+    sampler: emcee.EnsembleSampler,
+    burn_in: int,
+    min_tau_multiple: float = 50.0,
+) -> dict:
+    """Summarise whether a chain is long enough to trust.
+
+    Uses the integrated autocorrelation time τ. A common rule of thumb
+    (emcee docs) is that the post-burn-in chain should be ≳ 50 τ long and the
+    burn-in a few τ.
+
+    Returns
+    -------
+    dict with keys ``tau`` (per parameter), ``max_tau``, ``n_kept_steps``,
+    ``n_independent`` (≈ kept steps × walkers / max τ), ``acceptance`` and
+    ``converged``.
+    """
+    n_kept = sampler.iteration - burn_in
+    with np.errstate(invalid="ignore", divide="ignore"):
+        tau = sampler.get_autocorr_time(discard=burn_in, quiet=True)
+    tau = np.where(np.isfinite(tau), tau, np.inf)  # a parameter that never moved
+    max_tau = float(np.max(tau))
+    acceptance = float(np.mean(sampler.acceptance_fraction))
+    return {
+        "tau": tau.tolist(),
+        "max_tau": max_tau,
+        "n_kept_steps": int(n_kept),
+        "n_independent": float(n_kept * sampler.nwalkers / max_tau),
+        "acceptance": acceptance,
+        "converged": bool(n_kept >= min_tau_multiple * max_tau and burn_in >= 2 * max_tau),
+    }

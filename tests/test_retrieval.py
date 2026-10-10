@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from plato_fno.data.normalizer import SpectrumNormalizer
-from plato_fno.models.retrieval import MCMCRetrieval
+from plato_fno.models.retrieval import MCMCRetrieval, convergence_diagnostics
 from plato_fno.models.surrogate import AtmosphereSurrogate
 from plato_fno.physics.atmosphere import N_PARAMS, PARAM_NAMES, AtmosphericState
 
@@ -152,3 +152,15 @@ def test_initial_walkers_from_prior_are_valid_and_spread(retrieval):
     assert p0.shape == (32, N_PARAMS)
     assert np.isfinite(retrieval.log_prior(p0)).all()
     assert (p0.std(axis=0) > 0).all()
+
+
+@pytest.mark.slow
+def test_run_is_reproducible_with_seed(retrieval, observed):
+    kwargs = dict(observed=observed, sigma=1e-3, n_walkers=2 * N_PARAMS, n_steps=15,
+                  burn_in=5, thin=1, progress=False, seed=7)
+    a, sampler = retrieval.run(**kwargs)
+    b, _ = retrieval.run(**kwargs)
+    np.testing.assert_array_equal(a, b)
+    diag = convergence_diagnostics(sampler, burn_in=5)
+    assert set(diag) >= {"tau", "max_tau", "n_independent", "acceptance", "converged"}
+    assert diag["converged"] is False  # 10 kept steps can never be enough
