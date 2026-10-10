@@ -161,7 +161,7 @@ def test_compute_spectrum_inputs_to_prt():
     assert kwargs["reference_gravity"] == pytest.approx(10**state.log_g)
     assert kwargs["mean_molar_masses"].min() > 2.5
     expected_T = petitrt_driver.guillot_temperature_profile(
-        pressures, state.T_int, state.T_eq, 10**state.kappa_IR, 10**state.gamma,
+        pressures, state.T_int, state.T_eq, 10**state.log_kappa_IR, 10**state.log_gamma,
         gravity=10**state.log_g,
     )
     np.testing.assert_allclose(kwargs["temperatures"], expected_T)

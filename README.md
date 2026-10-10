@@ -26,7 +26,7 @@ There are five steps, and each one is a script in `scripts/`.
 run [petitRADTRANS](https://petitradtrans.readthedocs.io) on each one. Every atmosphere is
 described by 14 numbers:
 
-- temperature profile (Guillot 2010): `T_int`, `T_eq`, `kappa_IR`, `gamma`
+- temperature profile (Guillot 2010): `T_int`, `T_eq`, `log_kappa_IR`, `log_gamma`
 - gas abundances: `H2O`, `CO2`, `CH4`, `CO`, `NH3` (everything else is H₂/He)
 - planet and star: `log_g`, `R_planet`, `R_star`
 - clouds: `log_P_cloud`, `f_sed`

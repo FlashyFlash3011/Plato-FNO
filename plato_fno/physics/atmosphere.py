@@ -15,7 +15,7 @@ N_PARAMS: int = 14
 
 # Ordered parameter names (matches to_vector / from_vector)
 PARAM_NAMES: list[str] = [
-    "T_int", "T_eq", "kappa_IR", "gamma",
+    "T_int", "T_eq", "log_kappa_IR", "log_gamma",
     "log_X_H2O", "log_X_CO2", "log_X_CH4", "log_X_CO", "log_X_NH3",
     "log_g", "R_planet", "R_star",
     "log_P_cloud", "f_sed",
@@ -45,8 +45,8 @@ class AtmosphericState:
     # Guillot (2010) T-P profile parameters
     T_int: float        # internal temperature [K]
     T_eq: float         # equilibrium temperature [K]
-    kappa_IR: float     # IR opacity [cm2/g]  (log10 stored)
-    gamma: float        # ratio kappa_V / kappa_IR  (log10 stored)
+    log_kappa_IR: float  # log10 IR opacity [cm2/g]
+    log_gamma: float     # log10 ratio kappa_V / kappa_IR
 
     # Gas log10 mass fractions
     log_X_H2O: float
@@ -68,8 +68,8 @@ class AtmosphericState:
     PRIOR_BOUNDS: ClassVar[dict[str, tuple[float, float]]] = {
         "T_int":       (50.0,   800.0),
         "T_eq":        (300.0,  3000.0),
-        "kappa_IR":    (-4.0,   1.0),    # log10
-        "gamma":       (-2.0,   2.0),    # log10
+        "log_kappa_IR": (-4.0,  1.0),
+        "log_gamma":   (-2.0,   2.0),
         "log_X_H2O":   (-6.0,  -1.0),
         "log_X_CO2":   (-6.0,  -1.0),
         "log_X_CH4":   (-6.0,  -1.0),

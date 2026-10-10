@@ -161,8 +161,8 @@ def compute_spectrum(
         pressures,
         T_int=state.T_int,
         T_eq=state.T_eq,
-        kappa_IR=10.0**state.kappa_IR,
-        gamma=10.0**state.gamma,
+        kappa_IR=10.0**state.log_kappa_IR,
+        gamma=10.0**state.log_gamma,
         gravity=gravity,
     )
 
