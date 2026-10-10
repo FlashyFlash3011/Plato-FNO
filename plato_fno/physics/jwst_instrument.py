@@ -2,25 +2,29 @@
 
 Covers instruments within the FNO output range (0.3–5.0 µm):
 
-  Instrument       λ range (µm)   Bins   Baseline SNR (V=10 star)
-  ─────────────────────────────────────────────────────────────────
-  niriss_soss       0.60 – 2.80    40     300
-  nirspec_prism     0.60 – 5.00    30     200
-  nirspec_g140m     0.97 – 1.87    50     400
-  nirspec_g395m     2.87 – 5.00    40     150
+  Instrument       λ range (µm)   Bins   Per-bin 1σ at V=10 (ppm)
+  ────────────────────────────────────────────────────────────────
+  niriss_soss       0.60 – 2.80    40     60
+  nirspec_prism     0.60 – 5.00    30     50
+  nirspec_g140m     0.97 – 1.87    50     80
+  nirspec_g395m     2.87 – 5.00    40     90
 
 Spectral bins are chosen so that each bin contains several native FNO grid
 points (native grid: 300 points over 0.3–5.0 µm, δλ ≈ 0.016 µm/point).
-This matches how real JWST retrievals operate — spectral data are binned
-to a manageable resolution before fitting.
 
 Noise model
 -----------
-Per-bin photon noise:
-    σ(λ) = max(|depth(λ)| / SNR(λ), 1 ppm)
+The uncertainty on a transit depth is set by the number of stellar photons
+collected, not by the depth itself:
 
-SNR scales with stellar V-band magnitude relative to a V=10 baseline:
-    SNR(V) = SNR_V10 × 10^(-0.2 × (V - 10))
+    σ(V) = σ_V10 × 10^(0.2 × (V - 10))
+
+(photon-limited: flux ∝ 10^(-0.4 V), so σ ∝ 1/sqrt(flux)).
+
+The σ_V10 values are illustrative, order-of-magnitude placeholders for one
+transit at these coarse bin widths, not instrument-team numbers; use the JWST
+ETC or PandExo for a real target. They also ignore saturation (NIRSpec PRISM
+saturates on stars this bright) and correlated systematics.
 """
 
 from __future__ import annotations
@@ -37,15 +41,14 @@ JWST_INSTRUMENTS: dict[str, tuple[float, float, int]] = {
     "nirspec_g395m": (2.87, 5.00, 40),
 }
 
-# Baseline per-bin SNR for a V=10 host star, one transit, 30-min integrations
-_SNR_V10: dict[str, float] = {
-    "niriss_soss":   300.0,
-    "nirspec_prism": 200.0,
-    "nirspec_g140m": 400.0,
-    "nirspec_g395m": 150.0,
+# Illustrative per-bin 1σ transit-depth noise [ppm] for a V=10 host star,
+# one transit (see module docstring)
+NOISE_PPM_V10: dict[str, float] = {
+    "niriss_soss":   60.0,
+    "nirspec_prism": 50.0,
+    "nirspec_g140m": 80.0,
+    "nirspec_g395m": 90.0,
 }
-
-_ONE_PPM = 1e-6
 
 
 def _instrument(name: str) -> tuple[float, float, int]:
@@ -119,17 +122,17 @@ def simulate_jwst_observation(
     instrument: str = "niriss_soss",
     stellar_vmag: float = 10.0,
     rng: np.random.Generator | None = None,
-    snr_override: float | None = None,
+    noise_ppm_override: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Simulate a JWST transmission spectrum observation.
 
-    Bins the FNO spectrum to the instrument grid and adds per-channel
-    photon noise scaled by stellar brightness.
+    Bins the FNO spectrum to the instrument grid and adds white Gaussian
+    noise whose level depends on stellar brightness.
 
     Parameters
     ----------
     spectrum : np.ndarray, shape (L,) or (1, L)
-        Noiseless FNO-predicted transit depth spectrum.
+        Noiseless transit depth spectrum.
     wavelengths : np.ndarray, shape (L,)
         FNO wavelength grid in microns.
     instrument : str
@@ -138,30 +141,26 @@ def simulate_jwst_observation(
         V-band apparent magnitude of the host star.
     rng : np.random.Generator, optional
         Defaults to a new generator.
-    snr_override : float, optional
-        Override the instrument baseline SNR (useful for controlled experiments).
+    noise_ppm_override : float, optional
+        Per-bin 1σ at V=10 [ppm], replacing the instrument default.
 
     Returns
     -------
     observed    : np.ndarray, shape (n_bins,)  — noisy binned transit depth
     bin_centers : np.ndarray, shape (n_bins,)  — bin wavelengths [µm]
-    sigma       : np.ndarray, shape (n_bins,)  — per-bin 1σ noise [same units as depth]
+    sigma       : np.ndarray, shape (n_bins,)  — per-bin 1σ noise [depth units]
     """
     lam_min, lam_max, n_bins = _instrument(instrument)
-    binned, bin_centers = bin_spectrum(spectrum, wavelengths, lam_min, lam_max, n_bins)
+    binned, centers = bin_spectrum(spectrum, wavelengths, lam_min, lam_max, n_bins)
 
-    snr_base = snr_override if snr_override is not None else _SNR_V10[instrument]
-    snr      = snr_base * 10.0 ** (-0.2 * (stellar_vmag - 10.0))
-
-    # Per-bin sigma: signal / SNR with 1 ppm noise floor
-    sigma = np.maximum(np.abs(binned) / snr, _ONE_PPM).astype(np.float32)
+    noise_v10 = noise_ppm_override if noise_ppm_override is not None else NOISE_PPM_V10[instrument]
+    sigma_value = noise_v10 * 1e-6 * 10.0 ** (0.2 * (stellar_vmag - 10.0))
+    sigma = np.full(n_bins, sigma_value, dtype=np.float32)
 
     if rng is None:
         rng = np.random.default_rng()
-    noise    = rng.normal(0.0, 1.0, n_bins).astype(np.float32) * sigma
-    observed = (binned + noise).astype(np.float32)
-
-    return observed, bin_centers, sigma
+    observed = (binned + rng.normal(0.0, 1.0, n_bins) * sigma).astype(np.float32)
+    return observed, centers, sigma
 
 
 def make_bin_transform(

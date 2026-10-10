@@ -49,3 +49,13 @@ def test_simulated_noise_matches_reported_sigma():
         obs, _, sigma = simulate_jwst_observation(spectrum, WAVELENGTHS, "niriss_soss", rng=rng)
         draws.append(obs)
     np.testing.assert_allclose(np.std(draws, axis=0), sigma, rtol=0.1)
+
+
+def test_noise_does_not_scale_with_depth_but_with_magnitude():
+    _, _, s_shallow = simulate_jwst_observation(np.full(300, 0.001), WAVELENGTHS, "nirspec_prism")
+    _, _, s_deep = simulate_jwst_observation(np.full(300, 0.05), WAVELENGTHS, "nirspec_prism")
+    np.testing.assert_allclose(s_shallow, s_deep)
+    _, _, s_faint = simulate_jwst_observation(
+        np.full(300, 0.01), WAVELENGTHS, "nirspec_prism", stellar_vmag=15.0
+    )
+    np.testing.assert_allclose(s_faint / s_deep, 10.0, rtol=1e-6)  # 5 mag → 10× noise
