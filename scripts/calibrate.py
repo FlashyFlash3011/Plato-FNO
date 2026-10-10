@@ -76,13 +76,14 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     # Calibration split
     # ------------------------------------------------------------------
-    _, _, cal_ds = make_splits(
+    cal_ds = make_splits(
         hdf5_path,
         normalizer,
         train_frac=cfg.train.train_frac,
         val_frac=cfg.train.val_frac,
+        cal_frac=cfg.train.cal_frac,
         seed=cfg.seed,
-    )
+    )["cal"]
     log.info(f"Calibration set size: {len(cal_ds)}")
 
     cal_loader = build_dataloader(cal_ds, batch_size=256, shuffle=False)

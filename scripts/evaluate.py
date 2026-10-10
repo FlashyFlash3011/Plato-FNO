@@ -76,15 +76,15 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     log.info("=== 1. Spectral accuracy (test split) ===")
 
-    # Use samples beyond train+val+cal as test
-    _, _, cal_ds = make_splits(
-        hdf5_path, normalizer,
+    test_ds = make_splits(
+        hdf5_path,
+        normalizer,
         train_frac=cfg.train.train_frac,
         val_frac=cfg.train.val_frac,
+        cal_frac=cfg.train.cal_frac,
         seed=cfg.seed,
-    )
-    # Reuse cal split as test proxy (same held-out data)
-    test_loader = build_dataloader(cal_ds, batch_size=256, shuffle=False)
+    )["test"]
+    test_loader = build_dataloader(test_ds, batch_size=256, shuffle=False, num_workers=0)
 
     all_preds   = []
     all_targets = []
@@ -112,7 +112,7 @@ def main(cfg: DictConfig) -> None:
         "rmse_normalised": rmse_norm,
         "rmse_ppm":     rmse_ppm,
         "r2_score":     r2,
-        "n_test_samples": len(cal_ds),
+        "n_test_samples": len(test_ds),
     }
 
     log.info(f"  Relative L2:   {rel_l2:.4f}")

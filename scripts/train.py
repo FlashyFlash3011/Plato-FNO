@@ -26,12 +26,10 @@ from solaris.utils.seed import set_seed
 from solaris.utils.training import AutoCheckpoint, EarlyStopping, GradientClipper, WarmupCosineScheduler
 from solaris.datapipes.dataset import build_dataloader
 
-from plato_fno.data.dataset import load_raw_arrays, make_splits, valid_sample_mask
+from plato_fno.data.dataset import load_raw_arrays, make_splits, split_indices
 from plato_fno.data.normalizer import SpectrumNormalizer
 from plato_fno.models.surrogate import AtmosphereSurrogate, apply_overtone_spectral_init
 
-import h5py
-import numpy as np
 
 
 def loss_fn(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -63,17 +61,13 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     log.info("Computing normalisation statistics from training split ...")
 
-    with h5py.File(hdf5_path, "r") as f:
-        targets = f["target"][:]
-    all_valid = np.where(valid_sample_mask(targets))[0]
-
-    rng = np.random.default_rng(cfg.seed)
-    rng.shuffle(all_valid)
-
-    n = len(all_valid)
-    n_train = int(n * cfg.train.train_frac)
-    n_val   = int(n * cfg.train.val_frac)
-    train_idx = all_valid[:n_train]
+    split_kwargs = dict(
+        train_frac=cfg.train.train_frac,
+        val_frac=cfg.train.val_frac,
+        cal_frac=cfg.train.cal_frac,
+        seed=cfg.seed,
+    )
+    train_idx = split_indices(hdf5_path, **split_kwargs)["train"]
 
     train_params, train_spectra = load_raw_arrays(hdf5_path, train_idx)
     normalizer = SpectrumNormalizer().fit(train_params, train_spectra)
@@ -83,14 +77,9 @@ def main(cfg: DictConfig) -> None:
     # ------------------------------------------------------------------
     # Datasets and dataloaders
     # ------------------------------------------------------------------
-    train_ds, val_ds, cal_ds = make_splits(
-        hdf5_path,
-        normalizer,
-        train_frac=cfg.train.train_frac,
-        val_frac=cfg.train.val_frac,
-        seed=cfg.seed,
-    )
-    log.info(f"Splits — train: {len(train_ds)}, val: {len(val_ds)}, cal: {len(cal_ds)}")
+    splits = make_splits(hdf5_path, normalizer, **split_kwargs)
+    train_ds, val_ds = splits["train"], splits["val"]
+    log.info("Splits: " + ", ".join(f"{k}={len(v)}" for k, v in splits.items()))
 
     train_loader = build_dataloader(train_ds, batch_size=cfg.train.batch_size, shuffle=True)
     val_loader   = build_dataloader(val_ds,   batch_size=cfg.train.batch_size * 2, shuffle=False)

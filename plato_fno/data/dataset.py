@@ -21,11 +21,50 @@ from plato_fno.data.normalizer import SpectrumNormalizer
 # from failed pRT calls.
 MAX_TRANSIT_DEPTH = 0.15
 
+SPLIT_NAMES = ("train", "val", "cal", "test")
+
+
 def valid_sample_mask(targets: np.ndarray) -> np.ndarray:
     """Return a (N,) bool mask of usable spectra in a (N, 1, L) target array."""
     finite = np.isfinite(targets).all(axis=(1, 2))
     deepest = np.nan_to_num(targets, nan=np.inf).max(axis=(1, 2))
     return finite & (deepest < MAX_TRANSIT_DEPTH)
+
+
+def split_indices(
+    hdf5_path: Path,
+    train_frac: float = 0.70,
+    val_frac: float = 0.10,
+    cal_frac: float = 0.10,
+    seed: int = 42,
+) -> dict[str, np.ndarray]:
+    """Shuffle the valid sample indices and split them four ways.
+
+    ``test`` gets the remaining ``1 - train_frac - val_frac - cal_frac``. It is
+    never used for training, early stopping or conformal calibration, so
+    evaluation on it is honest.
+
+    Returns
+    -------
+    dict mapping "train", "val", "cal", "test" → sorted index arrays.
+    """
+    if min(train_frac, val_frac, cal_frac) <= 0 or train_frac + val_frac + cal_frac >= 1:
+        raise ValueError(
+            "Need positive train/val/cal fractions that leave room for a test split, got "
+            f"train={train_frac}, val={val_frac}, cal={cal_frac}"
+        )
+
+    with h5py.File(hdf5_path, "r") as f:
+        targets = f["target"][:]
+    all_indices = np.where(valid_sample_mask(targets))[0]
+
+    rng = np.random.default_rng(seed)
+    rng.shuffle(all_indices)
+
+    n = len(all_indices)
+    bounds = np.cumsum([0, int(n * train_frac), int(n * val_frac), int(n * cal_frac)])
+    pieces = np.split(all_indices, bounds[1:])
+    return {name: np.sort(idx) for name, idx in zip(SPLIT_NAMES, pieces)}
 
 
 def load_raw_arrays(
@@ -60,7 +99,7 @@ class AtmosphereDataset(Dataset):
     normalizer : SpectrumNormalizer
         Fitted normaliser.
     indices : np.ndarray
-        Sample indices to load.
+        Sample indices to load (normally one entry of :func:`split_indices`).
     """
 
     def __init__(
@@ -90,32 +129,15 @@ class AtmosphereDataset(Dataset):
 def make_splits(
     hdf5_path: Path,
     normalizer: SpectrumNormalizer,
-    train_frac: float = 0.80,
+    train_frac: float = 0.70,
     val_frac: float = 0.10,
+    cal_frac: float = 0.10,
     seed: int = 42,
-) -> tuple[AtmosphereDataset, AtmosphereDataset, AtmosphereDataset]:
-    """Split the valid samples into train / val / calibration datasets.
+) -> dict[str, AtmosphereDataset]:
+    """Build the train / val / cal / test datasets.
 
-    The remaining fraction (1 - train_frac - val_frac) goes to calibration.
-    The normaliser must already be fitted on the training split.
+    The normaliser must already be fitted on the training split, using
+    ``load_raw_arrays(hdf5_path, split_indices(...)["train"])``.
     """
-    with h5py.File(hdf5_path, "r") as f:
-        targets = f["target"][:]
-    all_indices = np.where(valid_sample_mask(targets))[0]
-
-    rng = np.random.default_rng(seed)
-    rng.shuffle(all_indices)
-
-    n = len(all_indices)
-    n_train = int(n * train_frac)
-    n_val = int(n * val_frac)
-
-    train_idx = all_indices[:n_train]
-    val_idx = all_indices[n_train : n_train + n_val]
-    cal_idx = all_indices[n_train + n_val :]
-
-    return (
-        AtmosphereDataset(hdf5_path, normalizer, train_idx),
-        AtmosphereDataset(hdf5_path, normalizer, val_idx),
-        AtmosphereDataset(hdf5_path, normalizer, cal_idx),
-    )
+    idx = split_indices(hdf5_path, train_frac, val_frac, cal_frac, seed)
+    return {name: AtmosphereDataset(hdf5_path, normalizer, idx[name]) for name in SPLIT_NAMES}
