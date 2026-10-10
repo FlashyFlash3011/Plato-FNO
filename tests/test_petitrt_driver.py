@@ -138,3 +138,30 @@ def test_unwritten_rows_are_nan_after_crash(tmp_path):
         targets = f["target"][:]
     assert np.isfinite(targets[:3]).all()
     assert np.isnan(targets[3:]).all()
+
+
+def test_compute_spectrum_inputs_to_prt():
+    """compute_spectrum passes gravity-aware temperatures to pRT."""
+    from plato_fno.physics import petitrt_driver
+
+    if not petitrt_driver._PRT_AVAILABLE:
+        pytest.skip("petitRADTRANS not installed")
+
+    state = AtmosphericState.sample_prior(np.random.default_rng(0))
+    pressures = np.logspace(-6, 2, 20)
+    wavelengths = np.linspace(0.3, 5.0, N_WAVELENGTHS)
+
+    prt = MagicMock()
+    wl_cm = np.linspace(0.29, 5.1, 500) * 1e-4
+    prt.calculate_transit_radii.return_value = (wl_cm, np.full(500, 7e9), {})
+    out = petitrt_driver.compute_spectrum(state, prt, pressures, wavelengths)
+
+    kwargs = prt.calculate_transit_radii.call_args.kwargs
+    assert kwargs["reference_gravity"] == pytest.approx(10**state.log_g)
+    expected_T = petitrt_driver.guillot_temperature_profile(
+        pressures, state.T_int, state.T_eq, 10**state.kappa_IR, 10**state.gamma,
+        gravity=10**state.log_g,
+    )
+    np.testing.assert_allclose(kwargs["temperatures"], expected_T)
+    assert out.shape == (N_WAVELENGTHS,)
+    np.testing.assert_allclose(out, (7e9 / (state.R_star * 6.957e10)) ** 2, rtol=1e-6)

@@ -132,14 +132,16 @@ def guillot_temperature_profile(
     T_eq: float,
     kappa_IR: float,
     gamma: float,
+    gravity: float,
 ) -> np.ndarray:
-    """Analytical Guillot (2010) T-P profile.
+    """Analytical Guillot (2010) T-P profile, global average (his Eq. 29).
+
+    Same formula as petitRADTRANS' ``temperature_profile_function_guillot_global``.
 
     Parameters
     ----------
     pressures : np.ndarray
-        Pressure array in bar, shape (n_layers,). Should be sorted high→low
-        (surface→top of atmosphere), as petitRADTRANS expects.
+        Pressure array in bar, shape (n_layers,), any order.
     T_int : float
         Internal temperature [K].
     T_eq : float
@@ -148,27 +150,23 @@ def guillot_temperature_profile(
         IR opacity [cm2/g] (linear, not log10).
     gamma : float
         Ratio of optical to IR opacity (linear, not log10).
+    gravity : float
+        Surface gravity [cm/s^2]; sets the column mass, tau = kappa_IR * P / g.
 
     Returns
     -------
     np.ndarray
         Temperature profile [K], shape (n_layers,).
     """
-    # Convert pressures to cgs (bar → dyne/cm^2), then to tau
-    # tau = kappa_IR * P / g  — use reference gravity g=1000 cm/s^2 for profile shape
-    # The actual gravity is accounted for in the transmission spectrum calculation
-    g_ref = 1000.0  # cm/s^2 reference (profile shape only)
-    pressures_cgs = pressures * 1e6  # bar → dyne/cm^2
-
-    tau = kappa_IR * pressures_cgs / g_ref
-
-    # Guillot Eq. 29
-    T4 = (
-        0.75 * T_int**4 * (2.0 / 3.0 + tau)
-        + 0.75
-        * T_eq**4
-        * (2.0 / 3.0 + 1.0 / (gamma * np.sqrt(3.0)) + (gamma / np.sqrt(3.0) - 1.0 / (gamma * np.sqrt(3.0))) * np.exp(-gamma * tau * np.sqrt(3.0)))
+    tau = kappa_IR * pressures * 1e6 / gravity  # bar → dyne/cm^2
+    sqrt3 = np.sqrt(3.0)
+    # Global average: f * T_irr^4 with f = 1/4 and T_irr^4 = 4 T_eq^4 gives T_eq^4
+    irradiation = (
+        2.0 / 3.0
+        + 1.0 / (gamma * sqrt3)
+        + (gamma / sqrt3 - 1.0 / (gamma * sqrt3)) * np.exp(-gamma * tau * sqrt3)
     )
+    T4 = 0.75 * T_int**4 * (2.0 / 3.0 + tau) + 0.75 * T_eq**4 * irradiation
     return T4**0.25
 
 

@@ -140,7 +140,7 @@ def compute_spectrum(
     prt : Radtrans
         Pre-initialised petitRADTRANS Radtrans object (v3).
     pressures : np.ndarray
-        Pressure grid in bar, shape (n_layers,), high→low.
+        Pressure grid in bar, shape (n_layers,), ascending (pRT v3).
     wavelengths_micron : np.ndarray
         Target wavelength grid in microns for output interpolation.
 
@@ -151,6 +151,8 @@ def compute_spectrum(
     """
     n_layers = len(pressures)
 
+    gravity = 10.0**state.log_g  # cm/s^2
+
     # Build T-P profile using Guillot parameterisation
     temperature = guillot_temperature_profile(
         pressures,
@@ -158,6 +160,7 @@ def compute_spectrum(
         T_eq=state.T_eq,
         kappa_IR=10.0**state.kappa_IR,
         gamma=10.0**state.gamma,
+        gravity=gravity,
     )
 
     # Mass fractions — broadcast to (n_layers,) arrays
@@ -182,7 +185,6 @@ def compute_spectrum(
     # Mean molecular weight (approximate, mostly H2/He)
     mean_molar_masses = np.full(n_layers, 2.33)
 
-    gravity = 10.0**state.log_g          # cm/s^2
     R_planet_cm = state.R_planet * 7.1492e9   # R_jup → cm
     R_star_cm   = state.R_star   * 6.957e10   # R_sun → cm
 

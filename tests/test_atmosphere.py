@@ -50,19 +50,19 @@ def test_in_prior_out_of_bounds():
 
 def test_guillot_profile_shape():
     pressures = np.logspace(2, -6, 60)
-    T = guillot_temperature_profile(pressures, T_int=200.0, T_eq=1500.0, kappa_IR=0.01, gamma=0.4)
+    T = guillot_temperature_profile(pressures, T_int=200.0, T_eq=1500.0, kappa_IR=0.01, gamma=0.4, gravity=1e3)
     assert T.shape == (60,)
 
 
 def test_guillot_profile_positive():
     pressures = np.logspace(2, -6, 60)
-    T = guillot_temperature_profile(pressures, T_int=200.0, T_eq=1500.0, kappa_IR=0.01, gamma=0.4)
+    T = guillot_temperature_profile(pressures, T_int=200.0, T_eq=1500.0, kappa_IR=0.01, gamma=0.4, gravity=1e3)
     assert (T > 0).all(), "Temperatures should be positive"
 
 
 def test_guillot_profile_physical_range():
     pressures = np.logspace(2, -6, 60)
-    T = guillot_temperature_profile(pressures, T_int=200.0, T_eq=1500.0, kappa_IR=0.01, gamma=0.4)
+    T = guillot_temperature_profile(pressures, T_int=200.0, T_eq=1500.0, kappa_IR=0.01, gamma=0.4, gravity=1e3)
     # Should be between ~50 K and ~5000 K for physical inputs
     assert T.min() > 50.0
     assert T.max() < 10000.0
@@ -75,3 +75,24 @@ def test_sample_prior_respects_transit_depth_constraint():
     for _ in range(500):
         s = AtmosphericState.sample_prior(rng)
         assert (s.R_planet * R_JUP_CM / (s.R_star * R_SUN_CM)) ** 2 < MAX_TRANSIT_DEPTH
+
+
+def test_guillot_matches_petitradtrans():
+    physics = pytest.importorskip("petitRADTRANS.physics")
+    pressures = np.logspace(-6, 2, 60)
+    for g in (300.0, 1e3, 3e4):
+        ours = guillot_temperature_profile(
+            pressures, T_int=200.0, T_eq=1500.0, kappa_IR=0.01, gamma=0.4, gravity=g
+        )
+        ref = physics.temperature_profile_function_guillot_global(
+            pressures, 0.01, 0.4, g, 200.0, 1500.0
+        )
+        np.testing.assert_allclose(ours, ref, rtol=1e-10)
+
+
+def test_guillot_depends_on_gravity():
+    pressures = np.logspace(-6, 2, 60)
+    kw = dict(T_int=200.0, T_eq=1500.0, kappa_IR=0.01, gamma=0.4)
+    low_g = guillot_temperature_profile(pressures, gravity=300.0, **kw)
+    high_g = guillot_temperature_profile(pressures, gravity=3e4, **kw)
+    assert not np.allclose(low_g, high_g)
