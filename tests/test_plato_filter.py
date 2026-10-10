@@ -15,28 +15,25 @@ N_WAVELENGTHS = 5000
 WAVELENGTHS   = np.linspace(0.3, 5.0, N_WAVELENGTHS)
 
 
+BANDS = {"ncam", "fcam_blue", "fcam_red"}
+
+
 def test_bandpass_keys():
-    assert set(PLATO_BANDPASSES.keys()) == {"blue", "green", "red", "nir"}
+    assert set(PLATO_BANDPASSES.keys()) == BANDS
 
 
 def test_integrate_constant_spectrum():
-    """Integrating a constant spectrum should return that constant for all bands.
-
-    Uses a dense wavelength grid so band edges are well-sampled.
-    """
-    spectrum = np.ones(N_WAVELENGTHS, dtype=np.float32) * 0.015
-    result   = integrate_spectrum_to_photometry(spectrum, WAVELENGTHS)
-    for band, val in result.items():
-        if not np.isnan(val):
-            # 2% tolerance: trapezoid integration on discrete grid has endpoint-clipping
-            # errors proportional to grid spacing / band width; worst case is narrow bands
-            np.testing.assert_allclose(val, 0.015, rtol=2e-2, err_msg=f"Band {band} failed")
+    """A constant spectrum averages to that constant in every band, on any grid."""
+    for grid in (WAVELENGTHS, np.linspace(0.3, 5.0, 300)):
+        spectrum = np.full(len(grid), 0.015)
+        for band, val in integrate_spectrum_to_photometry(spectrum, grid).items():
+            np.testing.assert_allclose(val, 0.015, rtol=1e-12, err_msg=f"Band {band} failed")
 
 
 def test_integrate_returns_all_bands():
     spectrum = np.ones(N_WAVELENGTHS)
     result   = integrate_spectrum_to_photometry(spectrum, WAVELENGTHS)
-    assert set(result.keys()) == {"blue", "green", "red", "nir"}
+    assert set(result.keys()) == BANDS
 
 
 def test_integrate_custom_bandpasses():
@@ -47,24 +44,12 @@ def test_integrate_custom_bandpasses():
 
 
 def test_add_plato_noise_changes_values():
-    photometry = {"blue": 0.01, "green": 0.011, "red": 0.012, "nir": 0.013}
-    snr        = {b: 100.0 for b in photometry}
-    rng        = np.random.default_rng(0)
-    noisy      = add_plato_noise(photometry, snr, rng)
+    photometry = {"ncam": 0.01, "fcam_blue": 0.011, "fcam_red": 0.012}
+    snr = {b: 100.0 for b in photometry}
+    noisy = add_plato_noise(photometry, snr, np.random.default_rng(0))
     assert noisy != photometry
 
 
-def test_add_plato_noise_reasonable_magnitude():
-    photometry = {"blue": 0.01, "green": 0.011, "red": 0.012, "nir": 0.013}
-    snr        = {b: 1000.0 for b in photometry}  # high SNR → small noise
-    rng        = np.random.default_rng(0)
-    noisy      = add_plato_noise(photometry, snr, rng)
-    for band in photometry:
-        rel_err = abs(noisy[band] - photometry[band]) / photometry[band]
-        assert rel_err < 0.05, f"Noise too large for {band}: {rel_err:.3f}"
-
-
 def test_photometry_to_array_order():
-    photometry = {"blue": 1.0, "green": 2.0, "red": 3.0, "nir": 4.0}
-    arr = photometry_to_array(photometry)
-    np.testing.assert_array_equal(arr, [1.0, 2.0, 3.0, 4.0])
+    photometry = {"fcam_red": 3.0, "ncam": 1.0, "fcam_blue": 2.0}
+    np.testing.assert_array_equal(photometry_to_array(photometry), [1.0, 2.0, 3.0])

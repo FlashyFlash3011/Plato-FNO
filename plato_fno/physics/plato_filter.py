@@ -1,15 +1,24 @@
-"""PLATO mission bandpass integration and noise simulation."""
+"""PLATO band integration and noise simulation.
+
+PLATO observes in white light: its 24 normal cameras (N-CAMs) share one
+broad band of roughly 500–1000 nm. The two fast cameras (F-CAMs) carry a blue
+(505–700 nm) and a red (665–1000 nm) filter, which gives a coarse colour.
+Band edges are from the PlatoSim paper (arXiv:2310.06985).
+
+The bands are modelled as top-hats; the real responses (CCD quantum
+efficiency, optics throughput) are not flat, so treat band-integrated depths
+as approximate.
+"""
 
 from __future__ import annotations
 
 import numpy as np
 
-# PLATO photometric channel bandpasses [microns]
+# PLATO passbands [microns]
 PLATO_BANDPASSES: dict[str, tuple[float, float]] = {
-    "blue":  (0.50, 0.65),
-    "green": (0.65, 0.75),
-    "red":   (0.75, 0.90),
-    "nir":   (0.90, 1.05),
+    "ncam": (0.500, 1.000),
+    "fcam_blue": (0.505, 0.700),
+    "fcam_red": (0.665, 1.000),
 }
 
 
@@ -18,7 +27,7 @@ def integrate_spectrum_to_photometry(
     wavelengths: np.ndarray,
     bandpasses: dict[str, tuple[float, float]] | None = None,
 ) -> dict[str, float]:
-    """Integrate a transit depth spectrum over PLATO bandpasses.
+    """Average a transit depth spectrum over each (top-hat) band.
 
     Parameters
     ----------
@@ -33,7 +42,7 @@ def integrate_spectrum_to_photometry(
     Returns
     -------
     dict[str, float]
-        Band-integrated transit depth per channel.
+        Band-averaged transit depth per band (NaN if the band holds < 2 grid points).
     """
     if bandpasses is None:
         bandpasses = PLATO_BANDPASSES
@@ -43,8 +52,11 @@ def integrate_spectrum_to_photometry(
         mask = (wavelengths >= lam_min) & (wavelengths <= lam_max)
         if mask.sum() < 2:
             result[band] = float("nan")
-        else:
-            result[band] = float(np.trapezoid(spectrum[mask], wavelengths[mask]) / (lam_max - lam_min))
+            continue
+        lam = wavelengths[mask]
+        # Divide by the span actually integrated over, so a constant spectrum
+        # averages to exactly that constant whatever the grid spacing.
+        result[band] = float(np.trapezoid(spectrum[mask], lam) / (lam[-1] - lam[0]))
     return result
 
 
@@ -77,9 +89,13 @@ def add_plato_noise(
     return noisy
 
 
-def photometry_to_array(photometry: dict[str, float]) -> np.ndarray:
-    """Convert photometry dict to ordered float32 array (blue, green, red, nir)."""
-    return np.array(
-        [photometry[b] for b in ["blue", "green", "red", "nir"]],
-        dtype=np.float32,
-    )
+def photometry_to_array(
+    photometry: dict[str, float],
+    bands: list[str] | None = None,
+) -> np.ndarray:
+    """Convert a photometry dict to a float32 array in ``bands`` order.
+
+    Defaults to the order of PLATO_BANDPASSES.
+    """
+    bands = list(PLATO_BANDPASSES) if bands is None else bands
+    return np.array([photometry[b] for b in bands], dtype=np.float32)
