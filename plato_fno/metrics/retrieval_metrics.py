@@ -5,8 +5,9 @@ from __future__ import annotations
 import time
 
 import numpy as np
+import torch
 
-from plato_fno.physics.atmosphere import PARAM_NAMES
+from plato_fno.physics.atmosphere import N_PARAMS, PARAM_NAMES
 
 
 def posterior_coverage(
@@ -114,11 +115,11 @@ def speedup_ratio(
 
 
 def benchmark_inference_time(
-    surrogate: "torch.nn.Module",
+    surrogate: torch.nn.Module,
     n_warmup: int = 20,
     n_repeat: int = 100,
     batch_size: int = 1,
-    device: str = "cpu",
+    device: str | torch.device = "cpu",
 ) -> float:
     """Benchmark FNO forward pass time in seconds.
 
@@ -139,9 +140,7 @@ def benchmark_inference_time(
     float
         Mean inference time per call [seconds].
     """
-    import torch
-    from plato_fno.physics.atmosphere import N_PARAMS
-
+    device = torch.device(device)
     surrogate = surrogate.to(device)
     surrogate.eval()
     dummy = torch.randn(batch_size, N_PARAMS, device=device)
@@ -150,14 +149,14 @@ def benchmark_inference_time(
         for _ in range(n_warmup):
             surrogate(dummy)
 
-        if device == "cuda":
-            torch.cuda.synchronize()
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
 
         t0 = time.perf_counter()
         for _ in range(n_repeat):
             surrogate(dummy)
-        if device == "cuda":
-            torch.cuda.synchronize()
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
         t1 = time.perf_counter()
 
     return (t1 - t0) / n_repeat
