@@ -43,11 +43,19 @@ def test_integrate_custom_bandpasses():
     np.testing.assert_allclose(result["full"], 2.0, rtol=1e-3)
 
 
-def test_add_plato_noise_changes_values():
-    photometry = {"ncam": 0.01, "fcam_blue": 0.011, "fcam_red": 0.012}
-    snr = {b: 100.0 for b in photometry}
-    noisy = add_plato_noise(photometry, snr, np.random.default_rng(0))
-    assert noisy != photometry
+def test_add_plato_noise_has_requested_sigma_independent_of_depth():
+    rng = np.random.default_rng(0)
+    for depth in (0.001, 0.05):
+        phot = {b: depth for b in BANDS}
+        draws = np.array(
+            [list(add_plato_noise(phot, {b: 100.0 for b in BANDS}, rng).values()) for _ in range(4000)]
+        )
+        np.testing.assert_allclose(draws.std(axis=0), 100e-6, rtol=0.1)
+
+
+def test_add_plato_noise_requires_every_band():
+    with pytest.raises(KeyError):
+        add_plato_noise({"ncam": 0.01, "fcam_red": 0.01}, {"ncam": 50.0}, np.random.default_rng(0))
 
 
 def test_photometry_to_array_order():
